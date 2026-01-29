@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm create vite@latest:*)",
+      "Bash(npm init:*)",
+      "Bash(npm install)",
+      "Bash(npm run build:*)",
+      "Bash(npm run dev:*)",
+      "Bash(timeout:*)",
+      "mcp__ide__getDiagnostics",
+      "Bash(npm install:*)",
+      "Bash(npx tsc:*)",
+      "Bash(tasklist:*)",
+      "Bash(gh auth:*)",
+      "Bash(git init:*)"
+    ]
+  }
+}
