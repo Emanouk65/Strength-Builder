@@ -11,6 +11,8 @@ import { Program } from '@/pages/Program'
 import { History } from '@/pages/History'
 import { Settings } from '@/pages/Settings'
 import { QuickLog } from '@/pages/QuickLog'
+import { DailyCheckInPage } from '@/pages/DailyCheckIn'
+import { LiftRecords } from '@/pages/LiftRecords'
 import { Layout } from '@/components/Layout'
 
 function LoadingScreen() {
@@ -78,9 +80,11 @@ function App() {
         <Route path="/" element={<Dashboard />} />
         <Route path="/workout/:workoutId?" element={<Workout />} />
         <Route path="/quick-log" element={<QuickLog />} />
+        <Route path="/check-in" element={<DailyCheckInPage />} />
         <Route path="/program" element={<Program />} />
         <Route path="/history" element={<History />} />
         <Route path="/settings" element={<Settings />} />
+        <Route path="/lift-records" element={<LiftRecords />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Layout>

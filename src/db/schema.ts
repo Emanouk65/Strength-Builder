@@ -15,6 +15,7 @@ import type {
   UserAchievement,
   AchievementId,
   QuickLogEntry,
+  DailyCheckIn,
 } from '@/lib/types'
 
 // ============================================================================
@@ -37,11 +38,12 @@ export class ForgeDB extends Dexie {
   liftRecords!: EntityTable<LiftRecord, 'id'>
   userAchievements!: EntityTable<UserAchievement, 'id'>
   quickLogEntries!: EntityTable<QuickLogEntry, 'id'>
+  dailyCheckIns!: EntityTable<DailyCheckIn, 'id'>
 
   constructor() {
     super('ForgeDB')
 
-    this.version(2).stores({
+    this.version(3).stores({
       // User table - one user for local-first approach
       users: 'id, createdAt',
 
@@ -84,6 +86,9 @@ export class ForgeDB extends Dexie {
 
       // Quick log entries - for free-form workout logging
       quickLogEntries: 'id, workoutId, exerciseId, order',
+
+      // Daily check-ins - independent of workouts, for tracking daily wellness
+      dailyCheckIns: 'id, userId, date, completedAt, workoutId',
     })
   }
 }
@@ -553,4 +558,223 @@ export async function markAchievementsSeen(
     .where('id')
     .anyOf(achievementIds)
     .modify({ seen: true })
+}
+
+// ============================================================================
+// Daily Check-In Functions
+// ============================================================================
+
+/**
+ * Get today's check-in for a user
+ */
+export async function getTodaysCheckIn(
+  userId: string
+): Promise<DailyCheckIn | undefined> {
+  const today = new Date().toISOString().split('T')[0]
+  return db.dailyCheckIns
+    .where({ userId, date: today })
+    .first()
+}
+
+/**
+ * Get recent check-ins for a user
+ */
+export async function getRecentCheckIns(
+  userId: string,
+  days: number = 7
+): Promise<DailyCheckIn[]> {
+  const startDate = new Date()
+  startDate.setDate(startDate.getDate() - days)
+  const startDateStr = startDate.toISOString().split('T')[0]
+
+  return db.dailyCheckIns
+    .where('userId')
+    .equals(userId)
+    .filter(c => c.date >= startDateStr)
+    .reverse()
+    .toArray()
+}
+
+/**
+ * Save a daily check-in
+ */
+export async function saveDailyCheckIn(
+  checkIn: DailyCheckIn
+): Promise<void> {
+  // Check if there's already a check-in for this date
+  const existing = await db.dailyCheckIns
+    .where({ userId: checkIn.userId, date: checkIn.date })
+    .first()
+
+  if (existing) {
+    // Update existing check-in
+    await db.dailyCheckIns.update(existing.id, checkIn)
+  } else {
+    // Add new check-in
+    await db.dailyCheckIns.add(checkIn)
+  }
+}
+
+/**
+ * Get check-in streak (consecutive days with check-ins)
+ */
+export async function getCheckInStreak(userId: string): Promise<number> {
+  const checkIns = await db.dailyCheckIns
+    .where('userId')
+    .equals(userId)
+    .reverse()
+    .sortBy('date')
+
+  if (checkIns.length === 0) return 0
+
+  let streak = 0
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+
+  for (let i = 0; i < checkIns.length; i++) {
+    const checkInDate = new Date(checkIns[i].date)
+    const expectedDate = new Date(today)
+    expectedDate.setDate(today.getDate() - i)
+
+    if (checkInDate.toDateString() === expectedDate.toDateString()) {
+      streak++
+    } else {
+      break
+    }
+  }
+
+  return streak
+}
+
+// ============================================================================
+// Dynamic Program Scheduling Functions
+// ============================================================================
+
+/**
+ * Get the next available (uncompleted) workout in the active phase
+ * Returns the earliest uncompleted workout regardless of scheduled date
+ */
+export async function getNextAvailableWorkout(userId: string): Promise<Workout | undefined> {
+  const activePhase = await getActivePhase(userId)
+  if (!activePhase) return undefined
+
+  const weeks = await db.weeks
+    .where('phaseId')
+    .equals(activePhase.id)
+    .sortBy('weekNumber')
+
+  if (weeks.length === 0) return undefined
+
+  const weekIds = weeks.map(w => w.id)
+
+  // Get all uncompleted workouts in the phase, sorted by scheduled date
+  const uncompletedWorkouts = await db.workouts
+    .where('weekId')
+    .anyOf(weekIds)
+    .filter(w => w.status === 'planned' || w.status === 'in_progress')
+    .sortBy('scheduledDate')
+
+  return uncompletedWorkouts[0]
+}
+
+/**
+ * Get all missed workouts (past scheduled date, still uncompleted)
+ */
+export async function getMissedWorkouts(userId: string): Promise<Workout[]> {
+  const activePhase = await getActivePhase(userId)
+  if (!activePhase) return []
+
+  const weeks = await db.weeks
+    .where('phaseId')
+    .equals(activePhase.id)
+    .toArray()
+
+  if (weeks.length === 0) return []
+
+  const weekIds = weeks.map(w => w.id)
+
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+
+  // Get workouts that are scheduled before today and still planned
+  const missedWorkouts = await db.workouts
+    .where('weekId')
+    .anyOf(weekIds)
+    .filter(w => {
+      const scheduledDate = new Date(w.scheduledDate)
+      scheduledDate.setHours(0, 0, 0, 0)
+      return scheduledDate < today && w.status === 'planned'
+    })
+    .sortBy('scheduledDate')
+
+  return missedWorkouts
+}
+
+/**
+ * Skip a workout with optional reason
+ */
+export async function skipWorkout(workoutId: string, reason?: string): Promise<void> {
+  await db.workouts.update(workoutId, {
+    status: 'skipped',
+    skipReason: reason || 'Skipped by user',
+  })
+}
+
+/**
+ * Get best lift record for an exercise (for weight suggestions)
+ */
+export async function getBestLift(userId: string, exerciseId: string): Promise<LiftRecord | undefined> {
+  return db.liftRecords
+    .where({ userId, exerciseId, isPersonalRecord: true })
+    .first()
+}
+
+/**
+ * Add or update a manual lift record
+ */
+export async function addManualLiftRecord(
+  userId: string,
+  exerciseId: string,
+  weight: number,
+  reps: number
+): Promise<boolean> {
+  // Calculate estimated 1RM using Epley formula
+  const estimated1RM = reps === 1 ? weight : weight * (1 + reps / 30)
+
+  // Check if this beats the existing PR
+  const existingPR = await db.liftRecords
+    .where({ userId, exerciseId, isPersonalRecord: true })
+    .first()
+
+  const isPR = !existingPR || estimated1RM > existingPR.estimated1RM
+
+  // Add the new record
+  await db.liftRecords.add({
+    id: crypto.randomUUID(),
+    userId,
+    exerciseId,
+    date: new Date(),
+    weight,
+    reps,
+    rpe: null,
+    estimated1RM,
+    isPersonalRecord: isPR,
+    isManualEntry: true,
+  })
+
+  // Update previous PR if this is the new one
+  if (isPR && existingPR) {
+    await db.liftRecords.update(existingPR.id, { isPersonalRecord: false })
+  }
+
+  return isPR
+}
+
+/**
+ * Get all PRs for a user (one per exercise)
+ */
+export async function getAllPRs(userId: string): Promise<LiftRecord[]> {
+  return db.liftRecords
+    .where({ userId, isPersonalRecord: true })
+    .toArray()
 }

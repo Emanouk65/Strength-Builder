@@ -162,6 +162,16 @@ function WeekCard({
 }) {
   const navigate = useNavigate()
   const completedCount = workouts.filter((w) => w.status === 'completed').length
+  const skippedCount = workouts.filter((w) => w.status === 'skipped').length
+
+  // Check if a workout is missed (past scheduled date, still planned)
+  const isWorkoutMissed = (workout: Workout): boolean => {
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    const scheduled = new Date(workout.scheduledDate)
+    scheduled.setHours(0, 0, 0, 0)
+    return scheduled < today && workout.status === 'planned'
+  }
 
   return (
     <Card className={cn(isCurrentWeek && 'border-primary')}>
@@ -173,6 +183,7 @@ function WeekCard({
           </div>
           <span className="text-xs text-muted-foreground">
             {completedCount}/{workouts.length} done
+            {skippedCount > 0 && ` (${skippedCount} skipped)`}
           </span>
         </div>
       </CardHeader>
@@ -181,17 +192,23 @@ function WeekCard({
           {[0, 1, 2, 3, 4, 5, 6].map((dayIndex) => {
             const workout = workouts.find((w) => w.dayOfWeek === dayIndex)
             const isToday = isDayToday(week.startDate, dayIndex)
+            const isMissed = workout ? isWorkoutMissed(workout) : false
+            const isSkipped = workout?.status === 'skipped'
 
             return (
               <button
                 key={dayIndex}
                 onClick={() => workout && navigate(`/workout/${workout.id}`)}
-                disabled={!workout}
+                disabled={!workout || isSkipped}
                 className={cn(
                   'aspect-square rounded-lg flex flex-col items-center justify-center text-xs transition-colors',
                   workout
                     ? workout.status === 'completed'
                       ? 'bg-success/20 text-success'
+                      : isSkipped
+                      ? 'bg-muted text-muted-foreground line-through opacity-50'
+                      : isMissed
+                      ? 'bg-warning/20 text-warning hover:bg-warning/30'
                       : isToday
                       ? 'bg-primary text-primary-foreground'
                       : 'bg-secondary hover:bg-secondary/80 text-foreground'
@@ -201,7 +218,10 @@ function WeekCard({
                 <span className="font-medium">{getShortDayName(dayIndex)}</span>
                 {workout && (
                   <span className="text-[10px] mt-0.5">
-                    {workout.status === 'completed' ? '✓' : workout.name.split(' ')[0]}
+                    {workout.status === 'completed' ? '✓' :
+                     workout.status === 'skipped' ? '—' :
+                     isMissed ? '!' :
+                     workout.name.split(' ')[0]}
                   </span>
                 )}
               </button>
@@ -303,13 +323,14 @@ async function generatePhase(
     await db.weeks.add(week)
 
     // Generate workouts for this week
-    await generateWeekWorkouts(week, preferredDays.slice(0, daysPerWeek), phaseType)
+    await generateWeekWorkouts(userId, week, preferredDays.slice(0, daysPerWeek), phaseType)
   }
 
   return phase
 }
 
 async function generateWeekWorkouts(
+  userId: string,
   week: Week,
   trainingDays: number[],
   phaseType: PhaseType
@@ -325,7 +346,9 @@ async function generateWeekWorkouts(
 
     const workout: Workout = {
       id: generateId(),
+      userId,
       weekId: week.id,
+      workoutType: 'programmed',
       dayOfWeek,
       scheduledDate,
       completedAt: null,

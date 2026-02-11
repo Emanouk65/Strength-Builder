@@ -379,6 +379,34 @@ export interface WorkoutReflection {
 }
 
 // ----------------------------------------------------------------------------
+// Daily Check-In (Independent of workouts)
+// ----------------------------------------------------------------------------
+
+export interface DailyCheckIn {
+  id: string
+  userId: string
+  date: string // ISO date string (YYYY-MM-DD) for easy lookup
+  completedAt: Date
+  // Core metrics (1-10 scale)
+  energy: number
+  mood: number
+  sleepQuality: number
+  sleepHours: number
+  hydration: number
+  nutrition: number
+  stress: number
+  motivation: number
+  soreness: number
+  // Qualitative
+  highlight: string // Best part of the day
+  challenge: string // What was difficult
+  gratitude: string // What you're grateful for
+  notes: string
+  // Optional workout reference
+  workoutId: string | null
+}
+
+// ----------------------------------------------------------------------------
 // Exercise Library (Static Reference Data)
 // ----------------------------------------------------------------------------
 
@@ -531,6 +559,7 @@ export interface LiftRecord {
   rpe: number | null
   estimated1RM: number
   isPersonalRecord: boolean
+  isManualEntry?: boolean // true if user entered this manually vs logged during workout
 }
 
 // ----------------------------------------------------------------------------

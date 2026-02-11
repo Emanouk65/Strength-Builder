@@ -1,4 +1,5 @@
-import type { Exercise } from '@/lib/types'
+import type { Exercise, EquipmentAccess, InjuryProfile, MuscleGroup, InjuryLocation, Equipment } from '@/lib/types'
+import { QUICK_WORKOUT_TEMPLATES, type QuickWorkoutType } from '@/lib/constants'
 
 // ============================================================================
 // Exercise Library Seed Data - Comprehensive Edition
@@ -3626,4 +3627,161 @@ export function searchExercises(query: string): Exercise[] {
 // Get exercises by category
 export function getExercisesByCategory(category: string): Exercise[] {
   return EXERCISE_LIBRARY.filter(ex => ex.category === category)
+}
+
+// ============================================================================
+// Quick Workout Generation
+// ============================================================================
+
+// Map equipment access to allowed equipment types
+function getEquipmentForAccess(access: EquipmentAccess): Equipment[] {
+  switch (access) {
+    case 'full_gym':
+      return ['barbell', 'dumbbell', 'cable', 'machine', 'bodyweight', 'kettlebell', 'band', 'cardio_machine', 'ez_bar', 'trap_bar', 'smith_machine', 'pull_up_bar', 'dip_station', 'bench', 'box']
+    case 'home_barbell':
+      return ['barbell', 'dumbbell', 'bodyweight', 'band', 'bench', 'pull_up_bar']
+    case 'home_dumbbells':
+      return ['dumbbell', 'bodyweight', 'band', 'kettlebell', 'bench']
+    case 'minimal':
+      return ['bodyweight', 'band']
+    case 'outdoor':
+      return ['bodyweight', 'band', 'box']
+    default:
+      return ['bodyweight']
+  }
+}
+
+// Get active injury locations from profile
+function getActiveInjuries(injuryProfile: InjuryProfile): InjuryLocation[] {
+  const injuries: InjuryLocation[] = []
+
+  if (injuryProfile.achilles?.severity > 3 && injuryProfile.achilles?.isActive) injuries.push('achilles')
+  if (injuryProfile.knees?.severity > 3 && injuryProfile.knees?.isActive) injuries.push('knee')
+  if (injuryProfile.lowerBack?.severity > 3 && injuryProfile.lowerBack?.isActive) injuries.push('lower_back')
+  if (injuryProfile.shoulders?.severity > 3 && injuryProfile.shoulders?.isActive) injuries.push('shoulder')
+  if (injuryProfile.elbows?.severity > 3 && injuryProfile.elbows?.isActive) injuries.push('elbow')
+
+  return injuries
+}
+
+// Shuffle array using Fisher-Yates algorithm
+function shuffleArray<T>(array: T[]): T[] {
+  const result = [...array]
+  for (let i = result.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[result[i], result[j]] = [result[j], result[i]]
+  }
+  return result
+}
+
+/**
+ * Generate a quick workout based on template type, equipment access, and injury profile
+ */
+export function generateQuickWorkout(
+  templateType: QuickWorkoutType,
+  equipmentAccess: EquipmentAccess,
+  injuryProfile: InjuryProfile
+): Exercise[] {
+  const template = QUICK_WORKOUT_TEMPLATES[templateType]
+  const allowedEquipment = getEquipmentForAccess(equipmentAccess)
+  const activeInjuries = getActiveInjuries(injuryProfile)
+
+  // Filter exercises based on equipment and injuries
+  let eligibleExercises = EXERCISE_LIBRARY.filter(ex => {
+    // Skip cardio exercises for strength workouts
+    if (ex.category === 'cardio') return false
+
+    // Check if exercise uses allowed equipment
+    const hasAllowedEquipment = ex.equipment.some(eq => allowedEquipment.includes(eq))
+    if (!hasAllowedEquipment) return false
+
+    // Check for injury contraindications
+    const hasInjuryConflict = ex.injuryContraindications.some(contra =>
+      activeInjuries.includes(contra)
+    )
+    if (hasInjuryConflict) return false
+
+    return true
+  })
+
+  // Filter by target muscles if specified (split-based workouts)
+  if (template.muscles && template.muscles.length > 0) {
+    if (template.muscles[0] === 'full_body') {
+      // For full body/mobility, include all exercises
+    } else {
+      eligibleExercises = eligibleExercises.filter(ex =>
+        ex.primaryMuscles.some(muscle => template.muscles?.includes(muscle))
+      )
+    }
+  }
+
+  // For strength template, prioritize compound exercises
+  if (template.includeCompound) {
+    const compoundExercises = eligibleExercises.filter(ex => ex.isCompound)
+    const isolationExercises = eligibleExercises.filter(ex => !ex.isCompound)
+
+    // Shuffle both arrays
+    const shuffledCompound = shuffleArray(compoundExercises)
+    const shuffledIsolation = shuffleArray(isolationExercises)
+
+    // Take compound exercises first, then fill with isolation
+    const compoundCount = Math.min(Math.ceil(template.exerciseCount * 0.6), shuffledCompound.length)
+    const isolationCount = Math.min(template.exerciseCount - compoundCount, shuffledIsolation.length)
+
+    return [
+      ...shuffledCompound.slice(0, compoundCount),
+      ...shuffledIsolation.slice(0, isolationCount)
+    ]
+  }
+
+  // For non-compound focused templates, just randomize
+  const shuffled = shuffleArray(eligibleExercises)
+  return shuffled.slice(0, template.exerciseCount)
+}
+
+/**
+ * Get exercises for a specific muscle group
+ */
+export function getExercisesForMuscle(
+  muscle: MuscleGroup,
+  equipmentAccess: EquipmentAccess,
+  injuryProfile: InjuryProfile
+): Exercise[] {
+  const allowedEquipment = getEquipmentForAccess(equipmentAccess)
+  const activeInjuries = getActiveInjuries(injuryProfile)
+
+  return EXERCISE_LIBRARY.filter(ex => {
+    if (ex.category === 'cardio') return false
+    if (!ex.primaryMuscles.includes(muscle)) return false
+    if (!ex.equipment.some(eq => allowedEquipment.includes(eq))) return false
+    if (ex.injuryContraindications.some(contra => activeInjuries.includes(contra))) return false
+    return true
+  })
+}
+
+/**
+ * Swap an exercise for an alternative that targets the same muscles
+ */
+export function getExerciseAlternative(
+  currentExercise: Exercise,
+  usedExerciseIds: string[],
+  equipmentAccess: EquipmentAccess,
+  injuryProfile: InjuryProfile
+): Exercise | null {
+  const allowedEquipment = getEquipmentForAccess(equipmentAccess)
+  const activeInjuries = getActiveInjuries(injuryProfile)
+  const primaryMuscle = currentExercise.primaryMuscles[0]
+
+  const alternatives = EXERCISE_LIBRARY.filter(ex => {
+    if (ex.id === currentExercise.id) return false
+    if (usedExerciseIds.includes(ex.id)) return false
+    if (ex.category === 'cardio') return false
+    if (!ex.primaryMuscles.includes(primaryMuscle)) return false
+    if (!ex.equipment.some(eq => allowedEquipment.includes(eq))) return false
+    if (ex.injuryContraindications.some(contra => activeInjuries.includes(contra))) return false
+    return true
+  })
+
+  if (alternatives.length === 0) return null
+  return alternatives[Math.floor(Math.random() * alternatives.length)]
 }

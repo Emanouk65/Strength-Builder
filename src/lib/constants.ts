@@ -48,6 +48,12 @@ export const BLOCK_CONFIG = {
     defaultDuration: 12,
     color: 'text-green-500',
   },
+  cardio: {
+    label: 'Cardio',
+    description: 'Cardiovascular training',
+    defaultDuration: 15,
+    color: 'text-green-400',
+  },
   core: {
     label: 'Core',
     description: 'Stability and strength through the trunk',
@@ -441,3 +447,248 @@ export function getStreakMessage(streak: number): string {
   }
   return "Keep going"
 }
+
+// ============================================================================
+// Quick Workout Templates
+// ============================================================================
+
+export type QuickWorkoutType =
+  // Split-based
+  | 'push'
+  | 'pull'
+  | 'legs'
+  | 'upper'
+  | 'lower'
+  | 'full_body'
+  | 'arms'
+  | 'core'
+  | 'back'
+  | 'chest'
+  | 'shoulders'
+  // Goal-based
+  | 'strength'
+  | 'hypertrophy'
+  | 'conditioning'
+  | 'mobility'
+  | 'quick_burn'
+
+export interface QuickWorkoutTemplate {
+  name: string
+  description: string
+  icon: string
+  category: 'split' | 'goal'
+  muscles?: string[]          // For split-based: target muscle groups
+  exerciseCount: number       // How many exercises to generate
+  setsPerExercise: number     // Default sets per exercise
+  repRange: [number, number]  // Target rep range
+  includeCompound?: boolean   // Prioritize compound movements
+  duration?: number           // Estimated duration in minutes
+}
+
+export const QUICK_WORKOUT_TEMPLATES: Record<QuickWorkoutType, QuickWorkoutTemplate> = {
+  // Split-based workouts
+  push: {
+    name: 'Push',
+    description: 'Chest, shoulders, triceps',
+    icon: '🫸',
+    category: 'split',
+    muscles: ['chest', 'shoulders', 'triceps'],
+    exerciseCount: 5,
+    setsPerExercise: 3,
+    repRange: [8, 12],
+    includeCompound: true,
+    duration: 45,
+  },
+  pull: {
+    name: 'Pull',
+    description: 'Back, biceps, rear delts',
+    icon: '🫷',
+    category: 'split',
+    muscles: ['back', 'biceps'],
+    exerciseCount: 5,
+    setsPerExercise: 3,
+    repRange: [8, 12],
+    includeCompound: true,
+    duration: 45,
+  },
+  legs: {
+    name: 'Legs',
+    description: 'Quads, hamstrings, glutes, calves',
+    icon: '🦵',
+    category: 'split',
+    muscles: ['quads', 'hamstrings', 'glutes', 'calves'],
+    exerciseCount: 5,
+    setsPerExercise: 3,
+    repRange: [8, 12],
+    includeCompound: true,
+    duration: 50,
+  },
+  upper: {
+    name: 'Upper Body',
+    description: 'Complete upper body workout',
+    icon: '💪',
+    category: 'split',
+    muscles: ['chest', 'back', 'shoulders', 'biceps', 'triceps'],
+    exerciseCount: 6,
+    setsPerExercise: 3,
+    repRange: [8, 12],
+    includeCompound: true,
+    duration: 55,
+  },
+  lower: {
+    name: 'Lower Body',
+    description: 'Complete lower body workout',
+    icon: '🏃',
+    category: 'split',
+    muscles: ['quads', 'hamstrings', 'glutes', 'calves'],
+    exerciseCount: 5,
+    setsPerExercise: 3,
+    repRange: [8, 12],
+    includeCompound: true,
+    duration: 50,
+  },
+  full_body: {
+    name: 'Full Body',
+    description: 'Hit every muscle group',
+    icon: '🏋️',
+    category: 'split',
+    muscles: ['chest', 'back', 'shoulders', 'quads', 'hamstrings', 'glutes', 'core'],
+    exerciseCount: 6,
+    setsPerExercise: 3,
+    repRange: [8, 12],
+    includeCompound: true,
+    duration: 60,
+  },
+  arms: {
+    name: 'Arms',
+    description: 'Biceps, triceps, forearms',
+    icon: '💪',
+    category: 'split',
+    muscles: ['biceps', 'triceps', 'forearms'],
+    exerciseCount: 5,
+    setsPerExercise: 3,
+    repRange: [10, 15],
+    includeCompound: false,
+    duration: 35,
+  },
+  core: {
+    name: 'Core',
+    description: 'Abs and trunk stability',
+    icon: '🔥',
+    category: 'split',
+    muscles: ['core'],
+    exerciseCount: 5,
+    setsPerExercise: 3,
+    repRange: [12, 20],
+    includeCompound: false,
+    duration: 25,
+  },
+  back: {
+    name: 'Back',
+    description: 'Lats, traps, rhomboids',
+    icon: '🦍',
+    category: 'split',
+    muscles: ['back'],
+    exerciseCount: 5,
+    setsPerExercise: 3,
+    repRange: [8, 12],
+    includeCompound: true,
+    duration: 40,
+  },
+  chest: {
+    name: 'Chest',
+    description: 'Pecs from all angles',
+    icon: '🎯',
+    category: 'split',
+    muscles: ['chest'],
+    exerciseCount: 5,
+    setsPerExercise: 3,
+    repRange: [8, 12],
+    includeCompound: true,
+    duration: 40,
+  },
+  shoulders: {
+    name: 'Shoulders',
+    description: 'Delts and traps',
+    icon: '🏔️',
+    category: 'split',
+    muscles: ['shoulders'],
+    exerciseCount: 5,
+    setsPerExercise: 3,
+    repRange: [10, 15],
+    includeCompound: true,
+    duration: 35,
+  },
+
+  // Goal-based workouts
+  strength: {
+    name: 'Strength',
+    description: 'Heavy compounds, lower reps',
+    icon: '🏆',
+    category: 'goal',
+    exerciseCount: 4,
+    setsPerExercise: 5,
+    repRange: [3, 6],
+    includeCompound: true,
+    duration: 60,
+  },
+  hypertrophy: {
+    name: 'Hypertrophy',
+    description: 'Volume focus, muscle growth',
+    icon: '📈',
+    category: 'goal',
+    exerciseCount: 6,
+    setsPerExercise: 4,
+    repRange: [8, 12],
+    includeCompound: true,
+    duration: 55,
+  },
+  conditioning: {
+    name: 'Conditioning',
+    description: 'Circuits and supersets',
+    icon: '⚡',
+    category: 'goal',
+    exerciseCount: 8,
+    setsPerExercise: 3,
+    repRange: [12, 20],
+    includeCompound: false,
+    duration: 40,
+  },
+  mobility: {
+    name: 'Mobility',
+    description: 'Stretching and movement',
+    icon: '🧘',
+    category: 'goal',
+    muscles: ['full_body'],
+    exerciseCount: 6,
+    setsPerExercise: 2,
+    repRange: [10, 15],
+    includeCompound: false,
+    duration: 30,
+  },
+  quick_burn: {
+    name: 'Quick Burn',
+    description: 'Fast, intense 15-minute workout',
+    icon: '🔥',
+    category: 'goal',
+    exerciseCount: 4,
+    setsPerExercise: 3,
+    repRange: [12, 15],
+    includeCompound: true,
+    duration: 15,
+  },
+}
+
+// Major lifts for PR tracking
+export const MAJOR_LIFTS = [
+  { id: 'barbell-back-squat', name: 'Back Squat', icon: '🏋️' },
+  { id: 'barbell-bench-press', name: 'Bench Press', icon: '💪' },
+  { id: 'conventional-deadlift', name: 'Deadlift', icon: '🦍' },
+  { id: 'overhead-press', name: 'Overhead Press', icon: '🏔️' },
+  { id: 'barbell-row', name: 'Barbell Row', icon: '🚣' },
+  { id: 'front-squat', name: 'Front Squat', icon: '🏋️' },
+  { id: 'sumo-deadlift', name: 'Sumo Deadlift', icon: '🦍' },
+  { id: 'incline-bench-press', name: 'Incline Bench', icon: '💪' },
+  { id: 'pull-up', name: 'Pull-up', icon: '🧗' },
+  { id: 'dip', name: 'Dip', icon: '⬇️' },
+]

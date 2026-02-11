@@ -1,9 +1,8 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { db } from '@/db'
-import { Button, Card, CardContent, Input, Slider, Badge } from '@/components/ui'
+import { Button, Card, CardContent, Input, Slider } from '@/components/ui'
 import { cn, generateId } from '@/lib/utils'
-import { PHASE_CONFIG } from '@/lib/constants'
 import type {
   User,
   UserPreferences,
@@ -123,12 +122,14 @@ export function Onboarding() {
   const [step, setStep] = useState(0)
   const [data, setData] = useState<OnboardingData>(defaultData)
   const [isCreating, setIsCreating] = useState(false)
+  const [createError, setCreateError] = useState<string | null>(null)
 
   const nextStep = () => setStep((s) => Math.min(s + 1, TOTAL_STEPS - 1))
   const prevStep = () => setStep((s) => Math.max(s - 1, 0))
 
   const createUser = async () => {
     setIsCreating(true)
+    setCreateError(null)
     try {
       const injuryProfile: InjuryProfile = {
         achilles: createInjuryStatus(data.injuries.achilles),
@@ -205,6 +206,8 @@ export function Onboarding() {
       navigate('/')
     } catch (error) {
       console.error('Failed to create user:', error)
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+      setCreateError(`Failed to create profile: ${errorMessage}`)
       setIsCreating(false)
     }
   }
@@ -221,7 +224,7 @@ export function Onboarding() {
       case 6: return <ScheduleStep {...props} />
       case 7: return <EquipmentStep {...props} />
       case 8: return <InjuryStep {...props} />
-      case 9: return <FinalStep {...props} onComplete={createUser} isCreating={isCreating} />
+      case 9: return <FinalStep {...props} onComplete={createUser} isCreating={isCreating} error={createError} />
       default: return null
     }
   }
@@ -254,7 +257,7 @@ export function Onboarding() {
 
       {/* Content */}
       <div className={cn(
-        "px-5 pb-8 safe-area-inset",
+        "px-5 pb-16 safe-area-inset",
         step > 0 ? "pt-20" : "pt-4"
       )}>
         {renderStep()}
@@ -320,12 +323,6 @@ function WelcomeStep({ onStart }: { onStart: () => void }) {
 }
 
 function FeatureItem({ icon, title, description }: { icon: string; title: string; description: string }) {
-  const icons: Record<string, string> = {
-    chart: 'M3 3v18h18',
-    target: 'M12 12m-9 0a9 9 0 1 0 18 0a9 9 0 1 0 -18 0',
-    trophy: 'M6 9H4.5a2.5 2.5 0 0 1 0-5H6',
-  }
-
   return (
     <div className="flex items-start gap-4 text-left p-4 rounded-2xl bg-card/50 border border-border/50">
       <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0">
@@ -870,7 +867,6 @@ function LifestyleStep({ data, setData, nextStep, prevStep }: StepProps) {
 // Step 6: Schedule
 function ScheduleStep({ data, setData, nextStep, prevStep }: StepProps) {
   const days = ['S', 'M', 'T', 'W', 'T', 'F', 'S']
-  const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
   const toggleDay = (index: number) => {
     setData((d) => {
@@ -1083,10 +1079,12 @@ function InjuryStep({ data, setData, nextStep, prevStep }: StepProps) {
 // Step 9: Final
 function FinalStep({
   data,
+  setData,
   prevStep,
   onComplete,
   isCreating,
-}: StepProps & { onComplete: () => void; isCreating: boolean }) {
+  error,
+}: StepProps & { onComplete: () => void; isCreating: boolean; error: string | null }) {
   const getSummary = () => {
     const experienceLevel =
       data.yearsTraining < 1 ? 'Beginner' :
@@ -1141,16 +1139,25 @@ function FinalStep({
         </div>
       </div>
 
+      {/* Error message */}
+      {error && (
+        <div className="mb-4 p-4 rounded-2xl bg-destructive/10 border border-destructive/20">
+          <p className="text-sm text-destructive">{error}</p>
+        </div>
+      )}
+
       {/* Actions */}
-      <div className="space-y-3">
+      <div className="space-y-3 pb-8">
         <Button
-          className="w-full h-14 text-base font-semibold shadow-glow"
+          type="button"
+          className="w-full h-14 text-base font-semibold shadow-glow active:scale-[0.98] transition-transform"
           onClick={onComplete}
           loading={isCreating}
         >
           Start Training
         </Button>
         <Button
+          type="button"
           variant="ghost"
           className="w-full"
           onClick={prevStep}

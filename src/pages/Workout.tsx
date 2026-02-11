@@ -14,6 +14,25 @@ import { cn, getRPEColor, generateId } from '@/lib/utils'
 import { BLOCK_CONFIG, RPE_DESCRIPTIONS, ACHIEVEMENTS, getStreakMessage } from '@/lib/constants'
 import type { BlockType, SetInstance, WorkoutReflection, AchievementId } from '@/lib/types'
 
+// Encouraging messages for set completion
+const SET_COMPLETE_MESSAGES = [
+  "Nice lift!",
+  "Crushed it!",
+  "Strong!",
+  "Let's go!",
+  "Beast mode!",
+  "Solid set!",
+  "That's how it's done!",
+  "Keep pushing!",
+  "On fire!",
+  "Locked in!",
+]
+
+// Get random encouraging message
+function getEncouragingMessage(): string {
+  return SET_COMPLETE_MESSAGES[Math.floor(Math.random() * SET_COMPLETE_MESSAGES.length)]
+}
+
 export function Workout() {
   const { workoutId } = useParams()
   const navigate = useNavigate()
@@ -66,10 +85,56 @@ export function Workout() {
     )
   }
 
+  // Show summary view for completed workouts
+  if (workoutData.status === 'completed') {
+    return (
+      <WorkoutSummary
+        workout={workoutData}
+        onBack={() => navigate('/history')}
+      />
+    )
+  }
+
   const currentBlock = workoutData.blocks[currentBlockIndex]
+
+  // Handle case where there are no blocks
+  if (!currentBlock) {
+    return (
+      <div className="flex items-center justify-center min-h-screen p-4">
+        <Card className="w-full max-w-md text-center">
+          <CardContent className="py-8">
+            <p className="text-muted-foreground mb-4">This workout has no exercises configured</p>
+            <Button onClick={() => navigate('/')}>Back to Dashboard</Button>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
   const totalBlocks = workoutData.blocks.length
   const completedBlocks = workoutData.blocks.filter(b => b.completed).length
   const progress = (completedBlocks / totalBlocks) * 100
+
+  // Calculate total sets completed across all blocks
+  const totalSetsCompleted = workoutData.blocks.reduce((acc, block) => {
+    return acc + block.exercises.reduce((setAcc, ex) => {
+      return setAcc + ex.sets.filter(s => s.completed).length
+    }, 0)
+  }, 0)
+
+  const totalSets = workoutData.blocks.reduce((acc, block) => {
+    return acc + block.exercises.reduce((setAcc, ex) => {
+      return setAcc + ex.sets.length
+    }, 0)
+  }, 0)
+
+  // Check if current block is fully completed
+  const currentBlockSetsCompleted = currentBlock.exercises.reduce((acc, ex) => {
+    return acc + ex.sets.filter(s => s.completed).length
+  }, 0)
+  const currentBlockTotalSets = currentBlock.exercises.reduce((acc, ex) => {
+    return acc + ex.sets.length
+  }, 0)
+  const isCurrentBlockComplete = currentBlockSetsCompleted === currentBlockTotalSets && currentBlockTotalSets > 0
 
   const handleBlockComplete = async () => {
     await db.workoutBlocks.update(currentBlock.id, { completed: true })
@@ -106,11 +171,30 @@ export function Workout() {
             Block {currentBlockIndex + 1} of {totalBlocks}
           </p>
         </div>
-        <div className="w-10" /> {/* Spacer */}
+        {/* Sets counter badge */}
+        <div className="flex items-center gap-1 bg-primary/10 px-2 py-1 rounded-full">
+          <span className="text-xs font-bold text-primary">{totalSetsCompleted}</span>
+          <span className="text-xs text-muted-foreground">/ {totalSets}</span>
+        </div>
       </header>
 
-      {/* Progress bar */}
-      <Progress value={progress} className="mb-6" />
+      {/* Progress bar with shimmer effect when in progress */}
+      <div className="relative mb-6">
+        <Progress value={progress} className={cn(totalSetsCompleted > 0 && totalSetsCompleted < totalSets && 'animate-glow')} />
+        {totalSetsCompleted > 0 && totalSetsCompleted < totalSets && (
+          <div className="absolute inset-0 progress-shimmer rounded-full pointer-events-none" />
+        )}
+      </div>
+
+      {/* Motivational stat bar */}
+      {totalSetsCompleted > 0 && (
+        <div className="flex items-center justify-center gap-2 mb-4 animate-slide-up">
+          <span className="text-2xl">💪</span>
+          <span className="text-sm font-medium text-primary">
+            {totalSetsCompleted} set{totalSetsCompleted !== 1 ? 's' : ''} crushed!
+          </span>
+        </div>
+      )}
 
       {/* Current Block */}
       <Card className="mb-6">
@@ -153,11 +237,30 @@ export function Workout() {
 
       {/* Complete Block Button */}
       <Button
-        className="w-full"
+        className={cn(
+          "w-full transition-all",
+          isCurrentBlockComplete && "bg-success hover:bg-success/90 animate-glow"
+        )}
         size="lg"
         onClick={handleBlockComplete}
       >
-        {currentBlockIndex < totalBlocks - 1 ? 'Complete Block' : 'Finish & Reflect'}
+        {currentBlockIndex < totalBlocks - 1 ? (
+          isCurrentBlockComplete ? (
+            <span className="flex items-center gap-2">
+              <span className="text-lg">🎯</span> Block Complete - Next!
+            </span>
+          ) : (
+            'Complete Block'
+          )
+        ) : (
+          isCurrentBlockComplete ? (
+            <span className="flex items-center gap-2">
+              <span className="text-lg">🏆</span> Finish & Celebrate!
+            </span>
+          ) : (
+            'Finish & Reflect'
+          )
+        )}
       </Button>
 
       {/* Block Navigation */}
@@ -171,8 +274,8 @@ export function Workout() {
               index === currentBlockIndex
                 ? 'bg-primary'
                 : block.completed
-                ? 'bg-success'
-                : 'bg-secondary'
+                  ? 'bg-success'
+                  : 'bg-secondary'
             )}
           />
         ))}
@@ -195,14 +298,32 @@ function ExerciseBlock({
   isLast: boolean
 }) {
   const [expandedSet, setExpandedSet] = useState<number | null>(0)
+  const [celebratingSet, setCelebratingSet] = useState<number | null>(null)
+  const [celebrationMessage, setCelebrationMessage] = useState<string>('')
+
+  const completedSets = exerciseInstance.sets.filter(s => s.completed).length
+  const totalSets = exerciseInstance.sets.length
+  const allSetsComplete = completedSets === totalSets
 
   const handleSetComplete = async (set: SetInstance, data: Partial<SetInstance>) => {
+    const currentIndex = exerciseInstance.sets.findIndex(s => s.id === set.id)
+
+    // Show celebration
+    setCelebratingSet(currentIndex)
+    setCelebrationMessage(getEncouragingMessage())
+
     await db.setInstances.update(set.id, {
       ...data,
       completed: true,
     })
+
+    // Clear celebration after animation
+    setTimeout(() => {
+      setCelebratingSet(null)
+      setCelebrationMessage('')
+    }, 1500)
+
     // Move to next set
-    const currentIndex = exerciseInstance.sets.findIndex(s => s.id === set.id)
     if (currentIndex < exerciseInstance.sets.length - 1) {
       setExpandedSet(currentIndex + 1)
     } else {
@@ -211,13 +332,44 @@ function ExerciseBlock({
   }
 
   return (
-    <div className={cn('pb-4', !isLast && 'border-b border-border')}>
+    <div className={cn('pb-4 relative', !isLast && 'border-b border-border')}>
       <div className="flex items-center justify-between mb-3">
-        <h4 className="font-medium">{exerciseInstance.exercise?.name || 'Exercise'}</h4>
-        <span className="text-xs text-muted-foreground">
-          {exerciseInstance.sets.filter(s => s.completed).length}/{exerciseInstance.sets.length} sets
-        </span>
+        <div className="flex items-center gap-2">
+          <h4 className="font-medium">{exerciseInstance.exercise?.name || 'Exercise'}</h4>
+          {allSetsComplete && (
+            <span className="text-success animate-bounce-in text-lg">✓</span>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          {/* Mini progress dots */}
+          <div className="flex gap-1">
+            {exerciseInstance.sets.map((set, i) => (
+              <div
+                key={i}
+                className={cn(
+                  'w-2 h-2 rounded-full transition-all duration-300',
+                  set.completed
+                    ? 'bg-success scale-110'
+                    : 'bg-secondary',
+                  celebratingSet === i && 'animate-pulse-success'
+                )}
+              />
+            ))}
+          </div>
+          <span className="text-xs text-muted-foreground ml-1">
+            {completedSets}/{totalSets}
+          </span>
+        </div>
       </div>
+
+      {/* Celebration message */}
+      {celebrationMessage && (
+        <div className="absolute top-0 right-0 animate-slide-up">
+          <span className="text-sm font-bold text-success bg-success/10 px-2 py-1 rounded-full">
+            {celebrationMessage}
+          </span>
+        </div>
+      )}
 
       <div className="space-y-2">
         {exerciseInstance.sets.map((set, index) => (
@@ -228,6 +380,7 @@ function ExerciseBlock({
             isExpanded={expandedSet === index}
             onExpand={() => setExpandedSet(expandedSet === index ? null : index)}
             onComplete={(data) => handleSetComplete(set, data)}
+            justCompleted={celebratingSet === index}
           />
         ))}
       </div>
@@ -248,12 +401,14 @@ function SetRow({
   isExpanded,
   onExpand,
   onComplete,
+  justCompleted = false,
 }: {
   set: SetInstance
   setNumber: number
   isExpanded: boolean
   onExpand: () => void
   onComplete: (data: Partial<SetInstance>) => void
+  justCompleted?: boolean
 }) {
   const [weight, setWeight] = useState(set.actualWeight ?? set.targetWeight ?? 0)
   const [reps, setReps] = useState(set.actualReps ?? set.targetReps ?? 0)
@@ -261,15 +416,33 @@ function SetRow({
 
   if (set.completed) {
     return (
-      <div className="flex items-center justify-between bg-secondary/50 rounded-lg p-3">
+      <div
+        className={cn(
+          'flex items-center justify-between rounded-lg p-3 transition-all duration-300',
+          justCompleted
+            ? 'bg-success/20 border border-success/30 animate-set-complete'
+            : 'bg-secondary/50'
+        )}
+      >
         <span className="text-sm text-muted-foreground">Set {setNumber}</span>
         <div className="flex items-center gap-3 text-sm">
-          <span>{set.actualWeight} lbs</span>
-          <span>x {set.actualReps}</span>
+          <span className={cn(justCompleted && 'font-semibold')}>{set.actualWeight} lbs</span>
+          <span className={cn(justCompleted && 'font-semibold')}>x {set.actualReps}</span>
           <span className={cn('font-mono', getRPEColor(set.actualRPE || 0))}>
             @{set.actualRPE}
           </span>
-          <span className="text-success">&#10003;</span>
+          <div className={cn(
+            'w-6 h-6 rounded-full flex items-center justify-center',
+            justCompleted ? 'bg-success text-white animate-bounce-in' : 'text-success'
+          )}>
+            {justCompleted ? (
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                <path className="animate-checkmark" d="M5 13l4 4L19 7" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            ) : (
+              <span>✓</span>
+            )}
+          </div>
         </div>
       </div>
     )
@@ -347,10 +520,10 @@ function SetRow({
         </Button>
         <Button
           size="sm"
-          className="flex-1"
+          className="flex-1 bg-success hover:bg-success/90 text-white font-semibold"
           onClick={() => onComplete({ actualWeight: weight, actualReps: reps, actualRPE: rpe })}
         >
-          Log Set
+          <span className="mr-1">✓</span> Log Set
         </Button>
       </div>
     </div>
@@ -673,6 +846,270 @@ function CelebrationScreen({
       <Button size="lg" onClick={onContinue} className="w-full max-w-sm">
         Continue
       </Button>
+    </div>
+  )
+}
+
+// Summary view for completed workouts (viewing from history)
+function WorkoutSummary({
+  workout,
+  onBack,
+}: {
+  workout: {
+    id: string
+    name: string
+    workoutType?: string
+    completedAt?: Date | null
+    totalDuration?: number
+    blocks: Array<{
+      id: string
+      type: string
+      exercises: Array<{
+        id: string
+        exercise?: { name: string }
+        sets: SetInstance[]
+      }>
+    }>
+    reflection?: {
+      energy: number
+      performance: number
+      winOfTheDay: string
+    } | null
+  }
+  onBack: () => void
+}) {
+  const completedDate = workout.completedAt ? new Date(workout.completedAt) : null
+
+  // Fetch QuickLog entries if this is a quick_log workout
+  const quickLogEntries = useLiveQuery(
+    async () => {
+      if (workout.workoutType !== 'quick_log') return null
+      return db.quickLogEntries
+        .where('workoutId')
+        .equals(workout.id)
+        .sortBy('order')
+    },
+    [workout.id, workout.workoutType]
+  )
+
+  // Check if there are any exercises from blocks
+  const hasBlockExercises = workout.blocks.some(block =>
+    block.exercises.some(ex => ex.sets.some(s => s.completed))
+  )
+
+  // Calculate total stats
+  const totalSets = workout.blocks.reduce((acc, block) => {
+    return acc + block.exercises.reduce((setAcc, ex) => {
+      return setAcc + ex.sets.filter(s => s.completed).length
+    }, 0)
+  }, 0) + (quickLogEntries?.reduce((acc, entry) => {
+    return acc + entry.sets.filter(s => s.completed).length
+  }, 0) || 0)
+
+  return (
+    <div className="min-h-screen bg-background p-4 pb-8">
+      {/* Header */}
+      <header className="flex items-center justify-between mb-6">
+        <button
+          onClick={onBack}
+          className="p-2 -ml-2 text-muted-foreground hover:text-foreground"
+        >
+          <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+          </svg>
+        </button>
+        <div className="text-center flex-1">
+          <h1 className="text-xl font-bold">{workout.name}</h1>
+          <Badge variant="success" className="mt-1">Completed</Badge>
+        </div>
+        <div className="w-10" /> {/* Spacer */}
+      </header>
+
+      {/* Date & Time Card */}
+      {completedDate && (
+        <Card className="mb-4">
+          <CardContent className="py-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-muted-foreground">Completed</p>
+                <p className="font-medium">
+                  {completedDate.toLocaleDateString('en-US', {
+                    weekday: 'long',
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric',
+                  })}
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  {completedDate.toLocaleTimeString('en-US', {
+                    hour: 'numeric',
+                    minute: '2-digit',
+                  })}
+                </p>
+              </div>
+              {/* Stats */}
+              <div className="text-right">
+                {totalSets > 0 && (
+                  <div className="flex items-center gap-2 justify-end">
+                    <span className="text-2xl">💪</span>
+                    <div>
+                      <p className="text-lg font-bold text-primary">{totalSets}</p>
+                      <p className="text-xs text-muted-foreground">sets</p>
+                    </div>
+                  </div>
+                )}
+                {workout.totalDuration && workout.totalDuration > 0 && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {workout.totalDuration} min
+                  </p>
+                )}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Reflection Summary */}
+      {workout.reflection && (
+        <Card className="mb-4">
+          <CardHeader>
+            <CardTitle className="text-base">Session Reflection</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <p className="text-sm text-muted-foreground">Energy</p>
+                <p className="text-lg font-bold">{workout.reflection.energy}/10</p>
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Performance</p>
+                <p className="text-lg font-bold">{workout.reflection.performance}/10</p>
+              </div>
+            </div>
+            {workout.reflection.winOfTheDay && (
+              <div className="mt-3 pt-3 border-t border-border">
+                <p className="text-sm text-muted-foreground">Win of the Day</p>
+                <p className="text-sm">"{workout.reflection.winOfTheDay}"</p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Exercise Summary - Programmed Workouts */}
+      {hasBlockExercises && (
+        <Card className="mb-4">
+          <CardHeader>
+            <CardTitle className="text-base">Exercises</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              {workout.blocks.map((block) => (
+                <div key={block.id}>
+                  {block.exercises.map((exerciseInstance) => {
+                    const completedSets = exerciseInstance.sets.filter(s => s.completed)
+                    if (completedSets.length === 0) return null
+
+                    return (
+                      <div key={exerciseInstance.id} className="mb-4 last:mb-0">
+                        <h4 className="font-medium mb-2">
+                          {exerciseInstance.exercise?.name || 'Exercise'}
+                        </h4>
+                        <div className="space-y-1">
+                          {completedSets.map((set, index) => (
+                            <div
+                              key={set.id}
+                              className="flex items-center justify-between text-sm bg-secondary/50 rounded px-3 py-2"
+                            >
+                              <span className="text-muted-foreground">Set {index + 1}</span>
+                              <div className="flex items-center gap-3">
+                                <span>{set.actualWeight || set.targetWeight} lbs</span>
+                                <span>x {set.actualReps || set.targetReps}</span>
+                                {(set.actualRPE || set.targetRPE) && (
+                                  <span className={cn('font-mono', getRPEColor(set.actualRPE || set.targetRPE || 0))}>
+                                    @{set.actualRPE || set.targetRPE}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Exercise Summary - Quick Log Workouts */}
+      {quickLogEntries && quickLogEntries.length > 0 && (
+        <Card className="mb-4">
+          <CardHeader>
+            <CardTitle className="text-base">Exercises</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              {quickLogEntries.map((entry) => {
+                const completedSets = entry.sets.filter(s => s.completed)
+                if (completedSets.length === 0) return null
+
+                return (
+                  <div key={entry.id} className="mb-4 last:mb-0">
+                    <h4 className="font-medium mb-2">{entry.exerciseName}</h4>
+                    <div className="space-y-1">
+                      {completedSets.map((set, index) => (
+                        <div
+                          key={index}
+                          className="flex items-center justify-between text-sm bg-secondary/50 rounded px-3 py-2"
+                        >
+                          <span className="text-muted-foreground">Set {index + 1}</span>
+                          <div className="flex items-center gap-3">
+                            {set.weight && <span>{set.weight} lbs</span>}
+                            {set.reps && <span>x {set.reps}</span>}
+                            {set.duration && <span>{set.duration}s</span>}
+                            {set.rpe && (
+                              <span className={cn('font-mono', getRPEColor(set.rpe))}>
+                                @{set.rpe}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    {entry.notes && (
+                      <p className="text-xs text-muted-foreground mt-2 italic">
+                        {entry.notes}
+                      </p>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* No exercise data message */}
+      {!hasBlockExercises && (!quickLogEntries || quickLogEntries.length === 0) && (
+        <Card className="mb-4">
+          <CardContent className="py-8 text-center">
+            <p className="text-muted-foreground">No exercise data recorded</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              This workout may have been a cardio session or quick completion
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Back Button */}
+      <div className="mt-6">
+        <Button variant="outline" className="w-full" onClick={onBack}>
+          Back to History
+        </Button>
+      </div>
     </div>
   )
 }

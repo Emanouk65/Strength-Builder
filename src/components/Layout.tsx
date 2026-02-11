@@ -22,7 +22,7 @@ export function Layout({ children }: LayoutProps) {
 
       {/* Bottom navigation */}
       {!hideNav && (
-        <nav className="fixed bottom-0 left-0 right-0 border-t border-border bg-card/95 backdrop-blur-sm safe-area-inset">
+        <nav className="fixed bottom-0 left-0 right-0 border-t border-border bg-card/95 backdrop-blur-sm safe-area-bottom z-50">
           <div className="mx-auto flex max-w-lg items-center justify-around relative">
             <NavItem to="/" icon={HomeIcon} label="Today" />
             <NavItem to="/program" icon={CalendarIcon} label="Program" />
