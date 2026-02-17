@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { getCurrentUser, saveDailyCheckIn, getTodaysCheckIn } from '@/db'
 import { Button, Card, CardContent, CardHeader, CardTitle, Input, Slider } from '@/components/ui'
-import { cn, generateId } from '@/lib/utils'
+import { cn, generateId, getLocalDateString } from '@/lib/utils'
 import type { DailyCheckIn } from '@/lib/types'
 
 export function DailyCheckInPage() {
@@ -64,7 +64,7 @@ export function DailyCheckInPage() {
     if (!user) return
     setIsSaving(true)
 
-    const today = new Date().toISOString().split('T')[0]
+    const today = getLocalDateString()
 
     const checkInData: DailyCheckIn = {
       id: existingCheckIn?.id || generateId(),

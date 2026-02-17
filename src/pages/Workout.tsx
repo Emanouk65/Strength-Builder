@@ -80,7 +80,7 @@ export function Workout() {
       <ReflectionForm
         workoutId={workoutData.id}
         workoutName={workoutData.name}
-        onComplete={() => navigate('/')}
+        onComplete={() => navigate(`/check-in?workoutId=${workoutData.id}&returnTo=/`)}
       />
     )
   }

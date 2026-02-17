@@ -41,6 +41,7 @@ export async function clearUserData(): Promise<void> {
       db.userAchievements,
       db.quickLogEntries,
       db.dailyCheckIns,
+      db.customExercises,
     ],
     async () => {
       await Promise.all([
@@ -58,6 +59,7 @@ export async function clearUserData(): Promise<void> {
         db.userAchievements.clear(),
         db.quickLogEntries.clear(),
         db.dailyCheckIns.clear(),
+        db.customExercises.clear(),
       ])
     }
   )
@@ -82,6 +84,7 @@ export async function exportUserData(): Promise<string> {
     userAchievements: await db.userAchievements.toArray(),
     quickLogEntries: await db.quickLogEntries.toArray(),
     dailyCheckIns: await db.dailyCheckIns.toArray(),
+    customExercises: await db.customExercises.toArray(),
     exportedAt: new Date().toISOString(),
     version: 1,
   }

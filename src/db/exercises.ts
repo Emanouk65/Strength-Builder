@@ -2261,6 +2261,508 @@ export const EXERCISE_LIBRARY: Exercise[] = [
     isUnilateral: false,
   },
 
+  // --- Anti-Extension ---
+  {
+    id: 'standing-ab-wheel',
+    name: 'Standing Ab Wheel Rollout',
+    category: 'core',
+    primaryMuscles: ['core'],
+    secondaryMuscles: ['shoulders'],
+    equipment: ['bodyweight'],
+    movementPattern: 'isolation',
+    injuryContraindications: ['lower_back', 'shoulder'],
+    substitutes: ['ab-wheel', 'barbell-rollout'],
+    cues: ['Full standing position', 'Extremely advanced', 'Control entire ROM'],
+    isCompound: false,
+    isUnilateral: false,
+  },
+  {
+    id: 'body-saw',
+    name: 'Body Saw',
+    category: 'core',
+    primaryMuscles: ['core'],
+    secondaryMuscles: ['shoulders'],
+    equipment: ['bodyweight'],
+    movementPattern: 'isolation',
+    injuryContraindications: ['lower_back', 'shoulder'],
+    substitutes: ['plank', 'ab-wheel'],
+    cues: ['Forearm plank on sliders', 'Rock body back and forth', 'Keep hips level'],
+    isCompound: false,
+    isUnilateral: false,
+  },
+  {
+    id: 'stability-ball-rollout',
+    name: 'Stability Ball Rollout',
+    category: 'core',
+    primaryMuscles: ['core'],
+    secondaryMuscles: ['shoulders'],
+    equipment: ['bodyweight'],
+    movementPattern: 'isolation',
+    injuryContraindications: ['lower_back', 'shoulder'],
+    substitutes: ['ab-wheel', 'plank'],
+    cues: ['Forearms on ball', 'Roll ball forward', 'Great ab wheel alternative'],
+    isCompound: false,
+    isUnilateral: false,
+  },
+  {
+    id: 'barbell-rollout',
+    name: 'Barbell Rollout',
+    category: 'core',
+    primaryMuscles: ['core'],
+    secondaryMuscles: ['shoulders'],
+    equipment: ['barbell'],
+    movementPattern: 'isolation',
+    injuryContraindications: ['lower_back', 'shoulder'],
+    substitutes: ['ab-wheel', 'stability-ball-rollout'],
+    cues: ['Kneel with barbell', 'Roll out slowly', 'Brace hard at full extension'],
+    isCompound: false,
+    isUnilateral: false,
+  },
+  {
+    id: 'trx-fallout',
+    name: 'TRX Fallout',
+    category: 'core',
+    primaryMuscles: ['core'],
+    secondaryMuscles: ['shoulders'],
+    equipment: ['suspension_trainer'],
+    movementPattern: 'isolation',
+    injuryContraindications: ['lower_back', 'shoulder'],
+    substitutes: ['ab-wheel', 'stability-ball-rollout'],
+    cues: ['Arms extended overhead', 'Fall forward controlled', 'Anti-extension focus'],
+    isCompound: false,
+    isUnilateral: false,
+  },
+  {
+    id: 'long-lever-plank',
+    name: 'Long Lever Plank',
+    category: 'core',
+    primaryMuscles: ['core'],
+    secondaryMuscles: ['shoulders'],
+    equipment: ['bodyweight'],
+    movementPattern: 'isolation',
+    injuryContraindications: ['shoulder', 'lower_back'],
+    substitutes: ['plank', 'body-saw'],
+    cues: ['Arms extended far forward', 'Longer lever = harder', 'Squeeze glutes'],
+    isCompound: false,
+    isUnilateral: false,
+  },
+
+  // --- Anti-Rotation ---
+  {
+    id: 'pallof-press-rotation',
+    name: 'Pallof Press with Rotation',
+    category: 'core',
+    primaryMuscles: ['core'],
+    secondaryMuscles: [],
+    equipment: ['cable', 'band'],
+    movementPattern: 'rotation',
+    injuryContraindications: ['lower_back'],
+    substitutes: ['pallof-press', 'russian-twist'],
+    cues: ['Press out then rotate', 'Control return', 'Anti-rotation plus rotation'],
+    isCompound: false,
+    isUnilateral: false,
+  },
+  {
+    id: 'half-kneeling-pallof-press',
+    name: 'Half-Kneeling Pallof Press',
+    category: 'core',
+    primaryMuscles: ['core'],
+    secondaryMuscles: ['glutes'],
+    equipment: ['cable', 'band'],
+    movementPattern: 'rotation',
+    injuryContraindications: [],
+    substitutes: ['pallof-press', 'plank-shoulder-tap'],
+    cues: ['Half-kneeling stance', 'Inside knee down', 'Resist rotation'],
+    isCompound: false,
+    isUnilateral: true,
+  },
+  {
+    id: 'banded-anti-rotation-hold',
+    name: 'Banded Anti-Rotation Hold',
+    category: 'core',
+    primaryMuscles: ['core'],
+    secondaryMuscles: [],
+    equipment: ['band'],
+    movementPattern: 'rotation',
+    injuryContraindications: [],
+    substitutes: ['pallof-press', 'plank'],
+    cues: ['Hold band at chest height', 'Resist pull', 'Timed hold'],
+    isCompound: false,
+    isUnilateral: false,
+  },
+  {
+    id: 'plank-shoulder-tap',
+    name: 'Plank Shoulder Tap',
+    category: 'core',
+    primaryMuscles: ['core'],
+    secondaryMuscles: ['shoulders'],
+    equipment: ['bodyweight'],
+    movementPattern: 'isolation',
+    injuryContraindications: ['shoulder', 'wrist'],
+    substitutes: ['plank', 'dead-bug'],
+    cues: ['High plank position', 'Tap opposite shoulder', 'Minimize hip rotation'],
+    isCompound: false,
+    isUnilateral: false,
+  },
+
+  // --- Flexion (Crunching/Curling) ---
+  {
+    id: 'kneeling-cable-crunch',
+    name: 'Kneeling Cable Crunch',
+    category: 'core',
+    primaryMuscles: ['core'],
+    secondaryMuscles: [],
+    equipment: ['cable'],
+    movementPattern: 'isolation',
+    injuryContraindications: ['lower_back'],
+    substitutes: ['cable-crunch', 'weighted-crunch'],
+    cues: ['Kneeling position', 'Crunch ribs toward hips', 'Hold rope behind head'],
+    isCompound: false,
+    isUnilateral: false,
+  },
+  {
+    id: 'weighted-crunch',
+    name: 'Weighted Crunch',
+    category: 'core',
+    primaryMuscles: ['core'],
+    secondaryMuscles: [],
+    equipment: ['dumbbell'],
+    movementPattern: 'isolation',
+    injuryContraindications: ['neck', 'lower_back'],
+    substitutes: ['cable-crunch', 'crunch'],
+    cues: ['Hold dumbbell at chest', 'Curl shoulders up', 'Short controlled ROM'],
+    isCompound: false,
+    isUnilateral: false,
+  },
+  {
+    id: 'ghd-sit-up',
+    name: 'GHD Sit-Up',
+    category: 'core',
+    primaryMuscles: ['core'],
+    secondaryMuscles: ['quads'],
+    equipment: ['machine'],
+    movementPattern: 'isolation',
+    injuryContraindications: ['lower_back'],
+    substitutes: ['decline-sit-up', 'v-up'],
+    cues: ['Full range of motion', 'Touch pad behind', 'Explosive sit-up'],
+    isCompound: false,
+    isUnilateral: false,
+  },
+  {
+    id: 'decline-sit-up',
+    name: 'Decline Sit-Up',
+    category: 'core',
+    primaryMuscles: ['core'],
+    secondaryMuscles: [],
+    equipment: ['bench'],
+    movementPattern: 'isolation',
+    injuryContraindications: ['lower_back'],
+    substitutes: ['crunch', 'ghd-sit-up'],
+    cues: ['Feet hooked on decline bench', 'Cross arms or hold weight', 'Control descent'],
+    isCompound: false,
+    isUnilateral: false,
+  },
+  {
+    id: 'v-up',
+    name: 'V-Up',
+    category: 'core',
+    primaryMuscles: ['core'],
+    secondaryMuscles: [],
+    equipment: ['bodyweight'],
+    movementPattern: 'isolation',
+    injuryContraindications: ['lower_back'],
+    substitutes: ['toe-touch', 'hollow-hold'],
+    cues: ['Hands and feet meet in middle', 'Keep legs straight', 'Fold at hips'],
+    isCompound: false,
+    isUnilateral: false,
+  },
+  {
+    id: 'toes-to-bar',
+    name: 'Toes to Bar',
+    category: 'core',
+    primaryMuscles: ['core'],
+    secondaryMuscles: ['shoulders'],
+    equipment: ['pull_up_bar'],
+    movementPattern: 'isolation',
+    injuryContraindications: ['shoulder', 'lower_back'],
+    substitutes: ['hanging-leg-raise', 'hanging-knee-raise'],
+    cues: ['Hang from bar', 'Bring toes to bar', 'Control the swing'],
+    isCompound: false,
+    isUnilateral: false,
+  },
+  {
+    id: 'dragon-flag',
+    name: 'Dragon Flag',
+    category: 'core',
+    primaryMuscles: ['core'],
+    secondaryMuscles: [],
+    equipment: ['bench'],
+    movementPattern: 'isolation',
+    injuryContraindications: ['lower_back', 'neck'],
+    substitutes: ['lying-leg-raise', 'hollow-hold'],
+    cues: ['Grip bench behind head', 'Lift body as one lever', 'Very advanced movement'],
+    isCompound: false,
+    isUnilateral: false,
+  },
+  {
+    id: 'sprinter-sit-up',
+    name: 'Sprinter Sit-Up',
+    category: 'core',
+    primaryMuscles: ['core'],
+    secondaryMuscles: ['quads'],
+    equipment: ['bodyweight'],
+    movementPattern: 'isolation',
+    injuryContraindications: ['lower_back'],
+    substitutes: ['bicycle-crunch', 'v-up'],
+    cues: ['Sit up explosively', 'Drive one knee up', 'Alternate sides'],
+    isCompound: false,
+    isUnilateral: false,
+  },
+
+  // --- Rotation/Obliques ---
+  {
+    id: 'weighted-russian-twist',
+    name: 'Weighted Russian Twist',
+    category: 'core',
+    primaryMuscles: ['core'],
+    secondaryMuscles: [],
+    equipment: ['dumbbell', 'medicine_ball'],
+    movementPattern: 'rotation',
+    injuryContraindications: ['lower_back'],
+    substitutes: ['russian-twist', 'woodchop'],
+    cues: ['Hold weight at chest', 'Lean back slightly', 'Rotate side to side'],
+    isCompound: false,
+    isUnilateral: false,
+  },
+  {
+    id: 'copenhagen-plank',
+    name: 'Copenhagen Plank',
+    category: 'core',
+    primaryMuscles: ['core'],
+    secondaryMuscles: ['quads'],
+    equipment: ['bodyweight', 'bench'],
+    movementPattern: 'isolation',
+    injuryContraindications: ['knee', 'hip'],
+    substitutes: ['side-plank', 'pallof-press'],
+    cues: ['Top foot on bench', 'Side plank with adductor focus', 'Keep hips level'],
+    isCompound: false,
+    isUnilateral: true,
+  },
+  {
+    id: 'dumbbell-side-bend',
+    name: 'Dumbbell Side Bend',
+    category: 'core',
+    primaryMuscles: ['core'],
+    secondaryMuscles: [],
+    equipment: ['dumbbell'],
+    movementPattern: 'isolation',
+    injuryContraindications: ['lower_back'],
+    substitutes: ['suitcase-carry', 'side-plank'],
+    cues: ['One dumbbell at side', 'Bend away from weight', 'Oblique focus'],
+    isCompound: false,
+    isUnilateral: true,
+  },
+  {
+    id: 'cable-woodchop-high-to-low',
+    name: 'Cable Woodchop High-to-Low',
+    category: 'core',
+    primaryMuscles: ['core'],
+    secondaryMuscles: ['shoulders'],
+    equipment: ['cable'],
+    movementPattern: 'rotation',
+    injuryContraindications: ['lower_back'],
+    substitutes: ['woodchop', 'russian-twist'],
+    cues: ['High cable position', 'Chop diagonally down', 'Power from hips'],
+    isCompound: false,
+    isUnilateral: true,
+  },
+  {
+    id: 'hanging-windshield-wiper',
+    name: 'Hanging Windshield Wiper',
+    category: 'core',
+    primaryMuscles: ['core'],
+    secondaryMuscles: ['shoulders'],
+    equipment: ['pull_up_bar'],
+    movementPattern: 'rotation',
+    injuryContraindications: ['shoulder', 'lower_back'],
+    substitutes: ['russian-twist', 'hanging-leg-raise'],
+    cues: ['Hang from bar', 'Legs up then rotate side to side', 'Very advanced'],
+    isCompound: false,
+    isUnilateral: false,
+  },
+  {
+    id: 'half-turkish-get-up',
+    name: 'Turkish Get-Up (Half)',
+    category: 'core',
+    primaryMuscles: ['core', 'shoulders'],
+    secondaryMuscles: ['glutes'],
+    equipment: ['kettlebell', 'dumbbell'],
+    movementPattern: 'isolation',
+    injuryContraindications: ['shoulder', 'wrist'],
+    substitutes: ['overhead-carry', 'plank'],
+    cues: ['Rise to elbow then hand', 'Weight stays overhead', 'Control each position'],
+    isCompound: true,
+    isUnilateral: true,
+  },
+
+  // --- Hip Flexion (Lower Abs) ---
+  {
+    id: 'weighted-hanging-leg-raise',
+    name: 'Weighted Hanging Leg Raise',
+    category: 'core',
+    primaryMuscles: ['core'],
+    secondaryMuscles: [],
+    equipment: ['pull_up_bar', 'dumbbell'],
+    movementPattern: 'isolation',
+    injuryContraindications: ['shoulder', 'lower_back'],
+    substitutes: ['hanging-leg-raise', 'toes-to-bar'],
+    cues: ['Dumbbell between feet', 'Lift with abs', 'Control the weight'],
+    isCompound: false,
+    isUnilateral: false,
+  },
+  {
+    id: 'decline-reverse-crunch',
+    name: 'Decline Reverse Crunch',
+    category: 'core',
+    primaryMuscles: ['core'],
+    secondaryMuscles: [],
+    equipment: ['bench'],
+    movementPattern: 'isolation',
+    injuryContraindications: ['lower_back'],
+    substitutes: ['reverse-crunch', 'hanging-knee-raise'],
+    cues: ['Head at high end', 'Curl hips off bench', 'Increased range of motion'],
+    isCompound: false,
+    isUnilateral: false,
+  },
+  {
+    id: 'captains-chair-leg-raise',
+    name: "Captain's Chair Leg Raise",
+    category: 'core',
+    primaryMuscles: ['core'],
+    secondaryMuscles: [],
+    equipment: ['dip_station'],
+    movementPattern: 'isolation',
+    injuryContraindications: ['shoulder', 'lower_back'],
+    substitutes: ['hanging-leg-raise', 'lying-leg-raise'],
+    cues: ['Supported on arm pads', 'Raise legs to parallel', 'No swinging'],
+    isCompound: false,
+    isUnilateral: false,
+  },
+  {
+    id: 'flutter-kick',
+    name: 'Flutter Kick',
+    category: 'core',
+    primaryMuscles: ['core'],
+    secondaryMuscles: [],
+    equipment: ['bodyweight'],
+    movementPattern: 'isolation',
+    injuryContraindications: ['lower_back'],
+    substitutes: ['scissor-kick', 'lying-leg-raise'],
+    cues: ['Lie flat, legs slightly raised', 'Alternate small kicks', 'Low back pressed down'],
+    isCompound: false,
+    isUnilateral: false,
+  },
+  {
+    id: 'scissor-kick',
+    name: 'Scissor Kick',
+    category: 'core',
+    primaryMuscles: ['core'],
+    secondaryMuscles: [],
+    equipment: ['bodyweight'],
+    movementPattern: 'isolation',
+    injuryContraindications: ['lower_back'],
+    substitutes: ['flutter-kick', 'lying-leg-raise'],
+    cues: ['Legs cross over each other', 'Keep legs low', 'Press low back into floor'],
+    isCompound: false,
+    isUnilateral: false,
+  },
+  {
+    id: 'dragon-flag-negative',
+    name: 'Dragon Flag Negative',
+    category: 'core',
+    primaryMuscles: ['core'],
+    secondaryMuscles: [],
+    equipment: ['bench'],
+    movementPattern: 'isolation',
+    injuryContraindications: ['lower_back', 'neck'],
+    substitutes: ['dragon-flag', 'hollow-hold'],
+    cues: ['Eccentric only', 'Lower body as slowly as possible', 'Build toward full dragon flag'],
+    isCompound: false,
+    isUnilateral: false,
+  },
+
+  // --- Isometric/Static Holds ---
+  {
+    id: 'weighted-plank',
+    name: 'Weighted Plank',
+    category: 'core',
+    primaryMuscles: ['core'],
+    secondaryMuscles: ['shoulders'],
+    equipment: ['bodyweight'],
+    movementPattern: 'isolation',
+    injuryContraindications: ['shoulder', 'lower_back'],
+    substitutes: ['plank', 'long-lever-plank'],
+    cues: ['Plate on upper back', 'Maintain neutral spine', 'Time under tension'],
+    isCompound: false,
+    isUnilateral: false,
+  },
+  {
+    id: 'side-plank-hip-dip',
+    name: 'Side Plank with Hip Dip',
+    category: 'core',
+    primaryMuscles: ['core'],
+    secondaryMuscles: [],
+    equipment: ['bodyweight'],
+    movementPattern: 'isolation',
+    injuryContraindications: ['shoulder'],
+    substitutes: ['side-plank', 'dumbbell-side-bend'],
+    cues: ['Side plank position', 'Dip hip toward floor', 'Raise back up, repeat'],
+    isCompound: false,
+    isUnilateral: true,
+  },
+  {
+    id: 'weighted-dead-bug',
+    name: 'Weighted Dead Bug',
+    category: 'core',
+    primaryMuscles: ['core'],
+    secondaryMuscles: [],
+    equipment: ['dumbbell', 'kettlebell'],
+    movementPattern: 'isolation',
+    injuryContraindications: ['lower_back'],
+    substitutes: ['dead-bug', 'plank'],
+    cues: ['Hold weight overhead', 'Opposite arm and leg extend', 'Low back stays flat'],
+    isCompound: false,
+    isUnilateral: false,
+  },
+  {
+    id: 'bear-crawl-hold',
+    name: 'Bear Crawl Hold',
+    category: 'core',
+    primaryMuscles: ['core'],
+    secondaryMuscles: ['shoulders', 'quads'],
+    equipment: ['bodyweight'],
+    movementPattern: 'isolation',
+    injuryContraindications: ['wrist', 'shoulder'],
+    substitutes: ['plank', 'dead-bug'],
+    cues: ['Hands and toes only', 'Knees hover 1 inch off ground', 'Brace entire core'],
+    isCompound: false,
+    isUnilateral: false,
+  },
+  {
+    id: 'hollow-body-rock',
+    name: 'Hollow Body Rock',
+    category: 'core',
+    primaryMuscles: ['core'],
+    secondaryMuscles: [],
+    equipment: ['bodyweight'],
+    movementPattern: 'isolation',
+    injuryContraindications: ['lower_back'],
+    substitutes: ['hollow-hold', 'dead-bug'],
+    cues: ['Hollow hold position', 'Rock gently back and forth', 'Maintain shape throughout'],
+    isCompound: false,
+    isUnilateral: false,
+  },
+
   // ===========================================================================
   // CONDITIONING
   // ===========================================================================
@@ -3560,6 +4062,288 @@ export const EXERCISE_LIBRARY: Exercise[] = [
     isCompound: true,
     isUnilateral: false,
   },
+
+  // ===========================================================================
+  // ADDITIONAL CARRY EXERCISES
+  // ===========================================================================
+  {
+    id: 'trap-bar-carry',
+    name: 'Trap Bar Carry',
+    category: 'core',
+    primaryMuscles: ['core', 'forearms'],
+    secondaryMuscles: ['back', 'shoulders'],
+    equipment: ['trap_bar'],
+    movementPattern: 'carry',
+    injuryContraindications: [],
+    substitutes: ['farmers-carry', 'suitcase-carry'],
+    cues: ['Neutral grip', 'Stay tall', 'Heavy loads possible'],
+    isCompound: true,
+    isUnilateral: false,
+  },
+  {
+    id: 'sandbag-carry',
+    name: 'Sandbag Carry',
+    category: 'conditioning',
+    primaryMuscles: ['core', 'full_body'],
+    secondaryMuscles: ['shoulders', 'back'],
+    equipment: ['none'],
+    movementPattern: 'carry',
+    injuryContraindications: ['lower_back'],
+    substitutes: ['farmers-carry', 'zercher-carry'],
+    cues: ['Bear hug the bag', 'Brace hard', 'Great for conditioning'],
+    isCompound: true,
+    isUnilateral: false,
+  },
+  {
+    id: 'zercher-carry',
+    name: 'Zercher Carry',
+    category: 'core',
+    primaryMuscles: ['core', 'biceps'],
+    secondaryMuscles: ['back', 'forearms'],
+    equipment: ['barbell'],
+    movementPattern: 'carry',
+    injuryContraindications: ['elbow'],
+    substitutes: ['farmers-carry', 'sandbag-carry'],
+    cues: ['Bar in elbow crease', 'Stay upright', 'Extreme core demand'],
+    isCompound: true,
+    isUnilateral: false,
+  },
+  {
+    id: 'cross-body-carry',
+    name: 'Cross-Body Carry',
+    category: 'core',
+    primaryMuscles: ['core'],
+    secondaryMuscles: ['shoulders', 'forearms'],
+    equipment: ['dumbbell', 'kettlebell'],
+    movementPattern: 'carry',
+    injuryContraindications: ['shoulder'],
+    substitutes: ['suitcase-carry', 'overhead-carry'],
+    cues: ['One arm overhead, one at side', 'Anti-lateral flexion', 'Stay balanced'],
+    isCompound: true,
+    isUnilateral: false,
+  },
+  {
+    id: 'rack-walk',
+    name: 'Rack Walk',
+    category: 'core',
+    primaryMuscles: ['core', 'shoulders'],
+    secondaryMuscles: ['biceps', 'forearms'],
+    equipment: ['kettlebell', 'dumbbell'],
+    movementPattern: 'carry',
+    injuryContraindications: [],
+    substitutes: ['farmers-carry', 'overhead-carry'],
+    cues: ['Weight in rack position', 'Elbows in', 'Stay tall and brace'],
+    isCompound: true,
+    isUnilateral: false,
+  },
+
+  // ===========================================================================
+  // ADDITIONAL LUNGE EXERCISES
+  // ===========================================================================
+  {
+    id: 'curtsy-lunge',
+    name: 'Curtsy Lunge',
+    category: 'accessory',
+    primaryMuscles: ['glutes', 'quads'],
+    secondaryMuscles: ['core'],
+    equipment: ['bodyweight', 'dumbbell'],
+    movementPattern: 'lunge',
+    injuryContraindications: ['knee', 'hip'],
+    substitutes: ['reverse-lunge', 'lateral-lunge'],
+    cues: ['Step behind and across', 'Target glute medius', 'Control balance'],
+    isCompound: true,
+    isUnilateral: true,
+  },
+  {
+    id: 'deficit-lunge',
+    name: 'Deficit Lunge',
+    category: 'accessory',
+    primaryMuscles: ['quads', 'glutes'],
+    secondaryMuscles: ['hamstrings'],
+    equipment: ['bodyweight', 'dumbbell'],
+    movementPattern: 'lunge',
+    injuryContraindications: ['knee'],
+    substitutes: ['walking-lunge', 'split-squat'],
+    cues: ['Front foot on small platform', 'Increased ROM', 'Greater glute stretch'],
+    isCompound: true,
+    isUnilateral: true,
+  },
+  {
+    id: 'step-up-high-box',
+    name: 'High Box Step Up',
+    category: 'accessory',
+    primaryMuscles: ['glutes', 'quads'],
+    secondaryMuscles: ['hamstrings'],
+    equipment: ['bodyweight', 'dumbbell', 'box'],
+    movementPattern: 'lunge',
+    injuryContraindications: ['knee'],
+    substitutes: ['step-up', 'walking-lunge'],
+    cues: ['Higher box for glute emphasis', 'Drive through heel', 'No push-off from back foot'],
+    isCompound: true,
+    isUnilateral: true,
+  },
+  {
+    id: 'db-split-squat',
+    name: 'Dumbbell Split Squat',
+    category: 'accessory',
+    primaryMuscles: ['quads', 'glutes'],
+    secondaryMuscles: ['hamstrings'],
+    equipment: ['dumbbell'],
+    movementPattern: 'lunge',
+    injuryContraindications: ['knee'],
+    substitutes: ['split-squat', 'walking-lunge'],
+    cues: ['Dumbbells at sides', 'Static split stance', 'Control descent'],
+    isCompound: true,
+    isUnilateral: true,
+  },
+  {
+    id: 'forward-lunge',
+    name: 'Forward Lunge',
+    category: 'accessory',
+    primaryMuscles: ['quads', 'glutes'],
+    secondaryMuscles: ['hamstrings', 'core'],
+    equipment: ['bodyweight', 'dumbbell', 'barbell'],
+    movementPattern: 'lunge',
+    injuryContraindications: ['knee'],
+    substitutes: ['reverse-lunge', 'walking-lunge'],
+    cues: ['Step forward', 'Knee tracks over toes', 'Push back to start'],
+    isCompound: true,
+    isUnilateral: true,
+  },
+  {
+    id: 'goblet-reverse-lunge',
+    name: 'Goblet Reverse Lunge',
+    category: 'accessory',
+    primaryMuscles: ['quads', 'glutes'],
+    secondaryMuscles: ['core'],
+    equipment: ['dumbbell', 'kettlebell'],
+    movementPattern: 'lunge',
+    injuryContraindications: ['knee'],
+    substitutes: ['reverse-lunge', 'goblet-squat'],
+    cues: ['Hold weight at chest', 'Step back', 'Upright torso'],
+    isCompound: true,
+    isUnilateral: true,
+  },
+
+  // ===========================================================================
+  // ADDITIONAL ROTATION EXERCISES
+  // ===========================================================================
+  {
+    id: 'landmine-rotation',
+    name: 'Landmine Rotation',
+    category: 'core',
+    primaryMuscles: ['core'],
+    secondaryMuscles: ['shoulders'],
+    equipment: ['barbell'],
+    movementPattern: 'rotation',
+    injuryContraindications: ['lower_back'],
+    substitutes: ['russian-twist', 'woodchop'],
+    cues: ['End of barbell in corner', 'Rotate from hips', 'Arms extended'],
+    isCompound: false,
+    isUnilateral: false,
+  },
+  {
+    id: 'medicine-ball-slam',
+    name: 'Medicine Ball Slam',
+    category: 'conditioning',
+    primaryMuscles: ['core', 'full_body'],
+    secondaryMuscles: ['shoulders'],
+    equipment: ['medicine_ball'],
+    movementPattern: 'rotation',
+    injuryContraindications: ['shoulder', 'lower_back'],
+    substitutes: ['russian-twist', 'woodchop'],
+    cues: ['Slam ball into ground', 'Full body power', 'Great for conditioning'],
+    isCompound: true,
+    isUnilateral: false,
+  },
+  {
+    id: 'woodchop-cable',
+    name: 'Cable Woodchop',
+    category: 'core',
+    primaryMuscles: ['core'],
+    secondaryMuscles: ['shoulders'],
+    equipment: ['cable'],
+    movementPattern: 'rotation',
+    injuryContraindications: ['lower_back'],
+    substitutes: ['woodchop', 'russian-twist'],
+    cues: ['High to low or low to high', 'Rotate from hips', 'Constant cable tension'],
+    isCompound: false,
+    isUnilateral: true,
+  },
+  {
+    id: 'anti-rotation-press',
+    name: 'Anti-Rotation Press',
+    category: 'core',
+    primaryMuscles: ['core'],
+    secondaryMuscles: [],
+    equipment: ['cable', 'band'],
+    movementPattern: 'rotation',
+    injuryContraindications: [],
+    substitutes: ['pallof-press', 'plank'],
+    cues: ['Resist rotation', 'Press and hold', 'Core stability focus'],
+    isCompound: false,
+    isUnilateral: false,
+  },
+  {
+    id: 'medicine-ball-rotational-throw',
+    name: 'Medicine Ball Rotational Throw',
+    category: 'conditioning',
+    primaryMuscles: ['core'],
+    secondaryMuscles: ['shoulders', 'chest'],
+    equipment: ['medicine_ball'],
+    movementPattern: 'rotation',
+    injuryContraindications: ['lower_back', 'shoulder'],
+    substitutes: ['medicine-ball-slam', 'russian-twist'],
+    cues: ['Throw against wall', 'Rotate from hips', 'Explosive power'],
+    isCompound: true,
+    isUnilateral: true,
+  },
+
+  // ===========================================================================
+  // ADDITIONAL GENERAL EXERCISES
+  // ===========================================================================
+  {
+    id: 'machine-hip-thrust',
+    name: 'Machine Hip Thrust',
+    category: 'compound',
+    primaryMuscles: ['glutes'],
+    secondaryMuscles: ['hamstrings'],
+    equipment: ['machine'],
+    movementPattern: 'hinge',
+    injuryContraindications: ['lower_back'],
+    substitutes: ['hip-thrust', 'glute-bridge'],
+    cues: ['Drive through heels', 'Full hip extension', 'Squeeze glutes at top'],
+    isCompound: true,
+    isUnilateral: false,
+  },
+  {
+    id: 'viking-press',
+    name: 'Viking Press',
+    category: 'compound',
+    primaryMuscles: ['shoulders'],
+    secondaryMuscles: ['triceps', 'core'],
+    equipment: ['machine'],
+    movementPattern: 'vertical_push',
+    injuryContraindications: ['shoulder'],
+    substitutes: ['overhead-press', 'z-press'],
+    cues: ['Neutral grip', 'Press overhead', 'Great shoulder saver'],
+    isCompound: true,
+    isUnilateral: false,
+  },
+  {
+    id: 'reverse-hyper',
+    name: 'Reverse Hyper',
+    category: 'accessory',
+    primaryMuscles: ['glutes', 'hamstrings'],
+    secondaryMuscles: ['back'],
+    equipment: ['machine'],
+    movementPattern: 'hinge',
+    injuryContraindications: [],
+    substitutes: ['reverse-hyperextension', 'back-extension'],
+    cues: ['Swing legs back', 'Squeeze glutes', 'Decompresses spine'],
+    isCompound: false,
+    isUnilateral: false,
+  },
 ]
 
 // Quick lookup maps
@@ -3613,10 +4397,11 @@ EXERCISE_LIBRARY.forEach(ex => {
   }
 })
 
-// Search helper - search exercises by name
-export function searchExercises(query: string): Exercise[] {
+// Search helper - search exercises by name (includes custom exercises when provided)
+export function searchExercises(query: string, customExercises: Exercise[] = []): Exercise[] {
   const lowerQuery = query.toLowerCase()
-  return EXERCISE_LIBRARY.filter(ex =>
+  const allExercises = [...EXERCISE_LIBRARY, ...customExercises]
+  return allExercises.filter(ex =>
     ex.name.toLowerCase().includes(lowerQuery) ||
     ex.category.toLowerCase().includes(lowerQuery) ||
     ex.primaryMuscles.some(m => m.toLowerCase().includes(lowerQuery)) ||
@@ -3632,6 +4417,19 @@ export function getExercisesByCategory(category: string): Exercise[] {
 // ============================================================================
 // Quick Workout Generation
 // ============================================================================
+
+// Priority exercises per template type - these are fundamental, well-known exercises
+// that should be preferred over obscure/advanced alternatives
+const PRESET_PRIORITY_EXERCISES: Partial<Record<QuickWorkoutType, string[]>> = {
+  push: ['barbell-bench-press', 'overhead-press', 'incline-dumbbell-press', 'tricep-pushdown', 'lateral-raise'],
+  pull: ['barbell-row', 'lat-pulldown', 'cable-row', 'barbell-curl', 'face-pull'],
+  legs: ['barbell-back-squat', 'rdl', 'leg-press', 'lying-leg-curl', 'calf-raise'],
+  upper: ['barbell-bench-press', 'barbell-row', 'overhead-press', 'lat-pulldown', 'barbell-curl', 'tricep-pushdown'],
+  lower: ['barbell-back-squat', 'rdl', 'leg-press', 'lying-leg-curl', 'walking-lunge', 'calf-raise'],
+  full_body: ['barbell-back-squat', 'barbell-bench-press', 'barbell-row', 'overhead-press', 'rdl', 'pull-up'],
+  strength: ['barbell-back-squat', 'barbell-bench-press', 'conventional-deadlift', 'overhead-press'],
+  hypertrophy: ['barbell-bench-press', 'barbell-row', 'barbell-back-squat', 'rdl', 'overhead-press', 'lat-pulldown'],
+}
 
 // Map equipment access to allowed equipment types
 function getEquipmentForAccess(access: EquipmentAccess): Equipment[] {
@@ -3715,28 +4513,46 @@ export function generateQuickWorkout(
     }
   }
 
-  // For strength template, prioritize compound exercises
-  if (template.includeCompound) {
-    const compoundExercises = eligibleExercises.filter(ex => ex.isCompound)
-    const isolationExercises = eligibleExercises.filter(ex => !ex.isCompound)
+  // Start with priority exercises for this template type
+  const priorityIds = PRESET_PRIORITY_EXERCISES[templateType] || []
+  const selectedExercises: Exercise[] = []
+  const usedIds = new Set<string>()
 
-    // Shuffle both arrays
-    const shuffledCompound = shuffleArray(compoundExercises)
-    const shuffledIsolation = shuffleArray(isolationExercises)
-
-    // Take compound exercises first, then fill with isolation
-    const compoundCount = Math.min(Math.ceil(template.exerciseCount * 0.6), shuffledCompound.length)
-    const isolationCount = Math.min(template.exerciseCount - compoundCount, shuffledIsolation.length)
-
-    return [
-      ...shuffledCompound.slice(0, compoundCount),
-      ...shuffledIsolation.slice(0, isolationCount)
-    ]
+  // First: add available priority exercises in order
+  for (const id of priorityIds) {
+    if (selectedExercises.length >= template.exerciseCount) break
+    const exercise = eligibleExercises.find(ex => ex.id === id)
+    if (exercise) {
+      selectedExercises.push(exercise)
+      usedIds.add(id)
+    }
   }
 
-  // For non-compound focused templates, just randomize
-  const shuffled = shuffleArray(eligibleExercises)
-  return shuffled.slice(0, template.exerciseCount)
+  // Second: fill remaining slots from eligible exercises
+  if (selectedExercises.length < template.exerciseCount) {
+    const remaining = eligibleExercises.filter(ex => !usedIds.has(ex.id))
+
+    if (template.includeCompound) {
+      const compoundExercises = remaining.filter(ex => ex.isCompound)
+      const isolationExercises = remaining.filter(ex => !ex.isCompound)
+      const shuffledCompound = shuffleArray(compoundExercises)
+      const shuffledIsolation = shuffleArray(isolationExercises)
+
+      const needed = template.exerciseCount - selectedExercises.length
+      const compoundCount = Math.min(Math.ceil(needed * 0.6), shuffledCompound.length)
+      const isolationCount = Math.min(needed - compoundCount, shuffledIsolation.length)
+
+      selectedExercises.push(
+        ...shuffledCompound.slice(0, compoundCount),
+        ...shuffledIsolation.slice(0, isolationCount)
+      )
+    } else {
+      const shuffled = shuffleArray(remaining)
+      selectedExercises.push(...shuffled.slice(0, template.exerciseCount - selectedExercises.length))
+    }
+  }
+
+  return selectedExercises
 }
 
 /**

@@ -17,6 +17,7 @@ import type {
   QuickLogEntry,
   DailyCheckIn,
 } from '@/lib/types'
+import { getLocalDateString } from '@/lib/utils'
 
 // ============================================================================
 // Database Schema Definition
@@ -39,56 +40,46 @@ export class ForgeDB extends Dexie {
   userAchievements!: EntityTable<UserAchievement, 'id'>
   quickLogEntries!: EntityTable<QuickLogEntry, 'id'>
   dailyCheckIns!: EntityTable<DailyCheckIn, 'id'>
+  customExercises!: EntityTable<Exercise, 'id'>
 
   constructor() {
     super('ForgeDB')
 
     this.version(3).stores({
-      // User table - one user for local-first approach
       users: 'id, createdAt',
-
-      // Phase (mesocycle) table
       phases: 'id, userId, status, startDate, endDate, type',
-
-      // Week table
       weeks: 'id, phaseId, weekNumber, startDate, status',
-
-      // Workout table - indexed for quick daily lookups
-      // Now supports quick_log and cardio workouts with userId index
       workouts: 'id, userId, weekId, workoutType, scheduledDate, status, dayOfWeek, completedAt',
-
-      // Workout blocks - ordered within a workout
       workoutBlocks: 'id, workoutId, type, order',
-
-      // Exercise instances within blocks
       exerciseInstances: 'id, blockId, exerciseId, order',
-
-      // Set instances within exercise instances
       setInstances: 'id, exerciseInstanceId, setNumber, completed',
-
-      // Workout reflections - one per workout
       workoutReflections: 'id, workoutId, completedAt',
-
-      // Exercise library - static reference data
       exercises: 'id, name, category, movementPattern, *primaryMuscles, *equipment, cardioType',
-
-      // Daily readiness scores
       readinessScores: 'id, userId, date',
-
-      // Coaching insights from LLM
       coachingInsights: 'id, userId, weekId, workoutId, createdAt, type, dismissed',
-
-      // Historical lift records for tracking progress
       liftRecords: 'id, userId, exerciseId, date, isPersonalRecord',
-
-      // User achievements
       userAchievements: 'id, userId, achievementId, unlockedAt, seen',
-
-      // Quick log entries - for free-form workout logging
       quickLogEntries: 'id, workoutId, exerciseId, order',
-
-      // Daily check-ins - independent of workouts, for tracking daily wellness
       dailyCheckIns: 'id, userId, date, completedAt, workoutId',
+    })
+
+    this.version(4).stores({
+      users: 'id, createdAt',
+      phases: 'id, userId, status, startDate, endDate, type',
+      weeks: 'id, phaseId, weekNumber, startDate, status',
+      workouts: 'id, userId, weekId, workoutType, scheduledDate, status, dayOfWeek, completedAt',
+      workoutBlocks: 'id, workoutId, type, order',
+      exerciseInstances: 'id, blockId, exerciseId, order',
+      setInstances: 'id, exerciseInstanceId, setNumber, completed',
+      workoutReflections: 'id, workoutId, completedAt',
+      exercises: 'id, name, category, movementPattern, *primaryMuscles, *equipment, cardioType',
+      readinessScores: 'id, userId, date',
+      coachingInsights: 'id, userId, weekId, workoutId, createdAt, type, dismissed',
+      liftRecords: 'id, userId, exerciseId, date, isPersonalRecord',
+      userAchievements: 'id, userId, achievementId, unlockedAt, seen',
+      quickLogEntries: 'id, workoutId, exerciseId, order',
+      dailyCheckIns: 'id, userId, date, completedAt, workoutId',
+      customExercises: 'id, name, category, movementPattern, *primaryMuscles',
     })
   }
 }
@@ -353,8 +344,10 @@ export async function updateStreakOnWorkoutComplete(
   const user = await db.users.get(userId)
   if (!user) return []
 
-  const today = new Date().toISOString().split('T')[0]
-  const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0]
+  const today = getLocalDateString()
+  const yesterdayDate = new Date()
+  yesterdayDate.setDate(yesterdayDate.getDate() - 1)
+  const yesterday = getLocalDateString(yesterdayDate)
 
   let newStreak = user.currentStreak
   let isComeback = false
@@ -570,7 +563,7 @@ export async function markAchievementsSeen(
 export async function getTodaysCheckIn(
   userId: string
 ): Promise<DailyCheckIn | undefined> {
-  const today = new Date().toISOString().split('T')[0]
+  const today = getLocalDateString()
   return db.dailyCheckIns
     .where({ userId, date: today })
     .first()
@@ -585,7 +578,7 @@ export async function getRecentCheckIns(
 ): Promise<DailyCheckIn[]> {
   const startDate = new Date()
   startDate.setDate(startDate.getDate() - days)
-  const startDateStr = startDate.toISOString().split('T')[0]
+  const startDateStr = getLocalDateString(startDate)
 
   return db.dailyCheckIns
     .where('userId')
@@ -721,6 +714,75 @@ export async function skipWorkout(workoutId: string, reason?: string): Promise<v
 }
 
 /**
+ * Get last workout data for an exercise (for weight suggestions)
+ * Looks at both quick log entries and programmed set instances
+ */
+export async function getLastWorkoutForExercise(
+  userId: string,
+  exerciseId: string
+): Promise<{ weight: number; reps: number; rpe: number | null } | null> {
+  // Check quick log entries first (most recent)
+  const recentWorkouts = await db.workouts
+    .where('userId')
+    .equals(userId)
+    .filter(w => w.status === 'completed')
+    .reverse()
+    .sortBy('completedAt')
+
+  for (const workout of recentWorkouts.slice(0, 20)) {
+    // Check quick log entries
+    const quickLogEntries = await db.quickLogEntries
+      .where('workoutId')
+      .equals(workout.id)
+      .filter(e => e.exerciseId === exerciseId)
+      .toArray()
+
+    for (const entry of quickLogEntries) {
+      const completedSet = entry.sets.find(s => s.completed && s.weight != null && s.reps != null)
+      if (completedSet) {
+        return {
+          weight: completedSet.weight!,
+          reps: completedSet.reps!,
+          rpe: completedSet.rpe,
+        }
+      }
+    }
+
+    // Check programmed workout sets
+    const blocks = await db.workoutBlocks
+      .where('workoutId')
+      .equals(workout.id)
+      .toArray()
+
+    for (const block of blocks) {
+      const instances = await db.exerciseInstances
+        .where('blockId')
+        .equals(block.id)
+        .filter(i => i.exerciseId === exerciseId)
+        .toArray()
+
+      for (const instance of instances) {
+        const completedSet = await db.setInstances
+          .where('exerciseInstanceId')
+          .equals(instance.id)
+          .filter(s => s.completed && s.actualWeight != null && s.actualReps != null)
+          .first()
+
+        if (completedSet) {
+          return {
+            weight: completedSet.actualWeight!,
+            reps: completedSet.actualReps!,
+            rpe: completedSet.actualRPE,
+          }
+        }
+      }
+    }
+  }
+
+  return null
+}
+
+/**
  * Get best lift record for an exercise (for weight suggestions)
  */
 export async function getBestLift(userId: string, exerciseId: string): Promise<LiftRecord | undefined> {
@@ -777,4 +839,29 @@ export async function getAllPRs(userId: string): Promise<LiftRecord[]> {
   return db.liftRecords
     .where({ userId, isPersonalRecord: true })
     .toArray()
+}
+
+// ============================================================================
+// Custom Exercise Functions
+// ============================================================================
+
+/**
+ * Add a custom exercise
+ */
+export async function addCustomExercise(exercise: Exercise): Promise<void> {
+  await db.customExercises.add({ ...exercise, isCustom: true })
+}
+
+/**
+ * Get all custom exercises
+ */
+export async function getCustomExercises(): Promise<Exercise[]> {
+  return db.customExercises.toArray()
+}
+
+/**
+ * Delete a custom exercise
+ */
+export async function deleteCustomExercise(exerciseId: string): Promise<void> {
+  await db.customExercises.delete(exerciseId)
 }

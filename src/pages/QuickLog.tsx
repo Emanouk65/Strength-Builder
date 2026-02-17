@@ -1,10 +1,10 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { db, getCurrentUser, updateStreakOnWorkoutComplete, checkTimeBasedAchievements } from '@/db'
+import { db, getCurrentUser, updateStreakOnWorkoutComplete, checkTimeBasedAchievements, getLastWorkoutForExercise, addCustomExercise, getCustomExercises } from '@/db'
 import { EXERCISE_LIBRARY, searchExercises, generateQuickWorkout, getExerciseAlternative } from '@/db/exercises'
 import { Button, Card, CardContent, CardHeader, CardTitle, Input, Badge } from '@/components/ui'
-import { cn, generateId, formatDuration } from '@/lib/utils'
+import { cn, generateId, formatDuration, getSuggestedWeight, getExerciseLogFields, type LogFieldType } from '@/lib/utils'
 import { ACHIEVEMENTS, getStreakMessage, QUICK_WORKOUT_TEMPLATES, type QuickWorkoutType } from '@/lib/constants'
 import type {
   Workout,
@@ -172,8 +172,8 @@ export function QuickLog() {
       let totalSets = 0
       let totalExercises = 0
 
-      // Save exercise entries for strength workouts
-      if (mode === 'strength') {
+      // Save exercise entries for strength and template workouts
+      if (mode === 'strength' || mode === 'template') {
         totalExercises = entries.length
         for (const entry of entries) {
           const completedSets = entry.sets.filter(s => s.completed)
@@ -187,6 +187,7 @@ export function QuickLog() {
             order: entry.order,
             sets: entry.sets,
             notes: entry.notes,
+            supersetGroupId: entry.supersetGroupId,
           }
           await db.quickLogEntries.add(logEntry)
 
@@ -425,6 +426,7 @@ export function QuickLog() {
         duration={getDuration()}
         weightUnit={user?.preferences.weightUnit || 'lbs'}
         repRange={template.repRange}
+        userId={user?.id}
       />
     )
   }
@@ -463,6 +465,7 @@ export function QuickLog() {
       isSaving={isSaving}
       duration={getDuration()}
       weightUnit={user.preferences.weightUnit}
+      userId={user.id}
     />
   )
 }
@@ -477,6 +480,251 @@ interface QuickLogEntryState {
   order: number
   sets: QuickLogSet[]
   notes: string
+  supersetGroupId?: string
+}
+
+// ============================================================================
+// Superset Helpers
+// ============================================================================
+
+type RenderGroup =
+  | { type: 'single'; entry: QuickLogEntryState }
+  | { type: 'superset'; groupId: string; entries: QuickLogEntryState[] }
+
+function groupEntriesForRender(entries: QuickLogEntryState[]): RenderGroup[] {
+  const groups: RenderGroup[] = []
+  let i = 0
+  while (i < entries.length) {
+    const entry = entries[i]
+    if (entry.supersetGroupId) {
+      const groupId = entry.supersetGroupId
+      const grouped: QuickLogEntryState[] = [entry]
+      // Collect consecutive entries with same groupId
+      while (i + 1 < entries.length && entries[i + 1].supersetGroupId === groupId) {
+        i++
+        grouped.push(entries[i])
+      }
+      groups.push({ type: 'superset', groupId, entries: grouped })
+    } else {
+      groups.push({ type: 'single', entry })
+    }
+    i++
+  }
+  return groups
+}
+
+function createSuperset(
+  entries: QuickLogEntryState[],
+  entryId: string,
+  setEntries: React.Dispatch<React.SetStateAction<QuickLogEntryState[]>>
+) {
+  const idx = entries.findIndex(e => e.id === entryId)
+  if (idx === -1 || idx >= entries.length - 1) return
+  const next = entries[idx + 1]
+  // If entry is already in a superset, do nothing
+  if (entries[idx].supersetGroupId) return
+  const groupId = generateId()
+  setEntries(entries.map((e, i) => {
+    if (i === idx || i === idx + 1) {
+      // If the next entry already has a group, join that group instead
+      if (i === idx && next.supersetGroupId) {
+        return { ...e, supersetGroupId: next.supersetGroupId }
+      }
+      return { ...e, supersetGroupId: groupId }
+    }
+    return e
+  }))
+}
+
+function SupersetWrapper({ children, onUnlink }: { children: React.ReactNode; onUnlink: () => void }) {
+  return (
+    <div className="border-l-4 border-primary rounded-lg bg-primary/5 pl-3 pr-1 py-2 space-y-3">
+      <div className="flex items-center justify-between px-1">
+        <span className="text-xs font-bold uppercase tracking-wider text-primary">Superset</span>
+        <button
+          onClick={onUnlink}
+          className="text-xs text-muted-foreground hover:text-destructive transition-colors px-2 py-1"
+        >
+          Unlink
+        </button>
+      </div>
+      {children}
+    </div>
+  )
+}
+
+// Hook to fetch last workout data for exercises
+function useExerciseHistory(userId: string | undefined, exerciseIds: string[]) {
+  const [history, setHistory] = useState<Record<string, { weight: number; reps: number; rpe: number | null }>>({})
+
+  useEffect(() => {
+    if (!userId || exerciseIds.length === 0) return
+
+    const fetchHistory = async () => {
+      const results: Record<string, { weight: number; reps: number; rpe: number | null }> = {}
+      for (const exerciseId of exerciseIds) {
+        if (history[exerciseId]) continue // Skip already fetched
+        const data = await getLastWorkoutForExercise(userId, exerciseId)
+        if (data) results[exerciseId] = data
+      }
+      if (Object.keys(results).length > 0) {
+        setHistory(prev => ({ ...prev, ...results }))
+      }
+    }
+
+    fetchHistory()
+  }, [userId, exerciseIds.join(',')])
+
+  return history
+}
+
+// Dynamic set row that adapts columns based on exercise type
+// Tailwind safelist for dynamic col-span classes:
+// col-span-2 col-span-3 col-span-4 col-span-5
+const COL_SPAN_CLASSES: Record<number, string> = {
+  2: 'col-span-2',
+  3: 'col-span-3',
+  4: 'col-span-4',
+  5: 'col-span-5',
+}
+
+function getFieldSpans(fields: LogFieldType[]) {
+  const fieldCount = fields.filter(f => f !== 'rpe').length
+  if (fieldCount <= 1) return { field: 5, rpe: 3 }
+  if (fieldCount === 2) return { field: 4, rpe: 2 }
+  return { field: 3, rpe: 2 }
+}
+
+function DynamicSetRow({
+  set,
+  setIndex,
+  entryId,
+  fields,
+  suggestedWeight,
+  repRange,
+  updateSet,
+  removeSet,
+  canRemove,
+}: {
+  set: QuickLogSet
+  setIndex: number
+  entryId: string
+  fields: LogFieldType[]
+  suggestedWeight?: number
+  repRange?: [number, number]
+  updateSet: (entryId: string, setIndex: number, updates: Partial<QuickLogSet>) => void
+  removeSet: (entryId: string, setIndex: number) => void
+  canRemove: boolean
+}) {
+  const spans = getFieldSpans(fields)
+
+  return (
+    <div className="grid grid-cols-12 gap-2 items-center">
+      <div className="col-span-1 text-sm font-mono text-muted-foreground">
+        {set.setNumber}
+      </div>
+      {fields.filter(f => f !== 'rpe').map(field => (
+        <div key={field} className={COL_SPAN_CLASSES[spans.field]}>
+          {field === 'weight' && (
+            <Input
+              type="number"
+              placeholder={suggestedWeight ? String(suggestedWeight) : '135'}
+              value={set.weight || ''}
+              onChange={(e) => updateSet(entryId, setIndex, { weight: parseFloat(e.target.value) || null })}
+              className="h-10 text-center"
+            />
+          )}
+          {field === 'reps' && (
+            <Input
+              type="number"
+              placeholder={repRange ? `${repRange[0]}-${repRange[1]}` : '10'}
+              value={set.reps || ''}
+              onChange={(e) => updateSet(entryId, setIndex, { reps: parseInt(e.target.value) || null })}
+              className="h-10 text-center"
+            />
+          )}
+          {field === 'distance' && (
+            <Input
+              type="number"
+              placeholder="ft"
+              value={set.distance || ''}
+              onChange={(e) => updateSet(entryId, setIndex, { distance: parseFloat(e.target.value) || null })}
+              className="h-10 text-center"
+            />
+          )}
+          {field === 'duration' && (
+            <Input
+              type="number"
+              placeholder="sec"
+              value={set.duration || ''}
+              onChange={(e) => updateSet(entryId, setIndex, { duration: parseInt(e.target.value) || null })}
+              className="h-10 text-center"
+            />
+          )}
+        </div>
+      ))}
+      {fields.includes('rpe') && (
+        <div className={COL_SPAN_CLASSES[spans.rpe]}>
+          <Input
+            type="number"
+            placeholder="7"
+            value={set.rpe || ''}
+            onChange={(e) => updateSet(entryId, setIndex, { rpe: parseFloat(e.target.value) || null })}
+            className="h-10 text-center"
+            min={1}
+            max={10}
+          />
+        </div>
+      )}
+      <div className="col-span-2 flex justify-end gap-1">
+        <button
+          onClick={() => updateSet(entryId, setIndex, { completed: !set.completed })}
+          className={cn(
+            'w-8 h-8 rounded-lg flex items-center justify-center transition-colors',
+            set.completed
+              ? 'bg-success text-white'
+              : 'bg-secondary text-muted-foreground'
+          )}
+        >
+          {set.completed ? '✓' : ''}
+        </button>
+        {canRemove && (
+          <button
+            onClick={() => removeSet(entryId, setIndex)}
+            className="w-8 h-8 rounded-lg bg-secondary text-muted-foreground flex items-center justify-center"
+          >
+            −
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// Dynamic header for set rows
+function DynamicSetHeader({ fields, weightUnit }: { fields: LogFieldType[]; weightUnit: string }) {
+  const spans = getFieldSpans(fields)
+
+  const fieldLabels: Record<LogFieldType, string> = {
+    weight: weightUnit,
+    reps: 'Reps',
+    duration: 'Sec',
+    distance: 'Dist',
+    rpe: 'RPE',
+  }
+
+  return (
+    <div className="grid grid-cols-12 gap-2 text-xs text-muted-foreground px-1">
+      <div className="col-span-1">Set</div>
+      {fields.filter(f => f !== 'rpe').map(field => (
+        <div key={field} className={COL_SPAN_CLASSES[spans.field]}>{fieldLabels[field]}</div>
+      ))}
+      {fields.includes('rpe') && (
+        <div className={COL_SPAN_CLASSES[spans.rpe]}>RPE</div>
+      )}
+      <div className="col-span-2"></div>
+    </div>
+  )
 }
 
 function StrengthLogger({
@@ -489,6 +737,7 @@ function StrengthLogger({
   isSaving,
   duration,
   weightUnit,
+  userId,
 }: {
   entries: QuickLogEntryState[]
   setEntries: React.Dispatch<React.SetStateAction<QuickLogEntryState[]>>
@@ -499,16 +748,23 @@ function StrengthLogger({
   isSaving: boolean
   duration: number
   weightUnit: 'lbs' | 'kg'
+  userId?: string
 }) {
   const [showExerciseSearch, setShowExerciseSearch] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
+  const [showCustomForm, setShowCustomForm] = useState(false)
+
+  const exerciseIds = useMemo(() => entries.map(e => e.exercise.id), [entries])
+  const exerciseHistory = useExerciseHistory(userId, exerciseIds)
+  const customExercises = useLiveQuery(() => getCustomExercises(), [])
 
   const filteredExercises = useMemo(() => {
-    let results = EXERCISE_LIBRARY.filter(ex => ex.category !== 'cardio')
+    const customs = customExercises || []
+    let results = [...EXERCISE_LIBRARY, ...customs].filter(ex => ex.category !== 'cardio')
 
     if (searchQuery) {
-      results = searchExercises(searchQuery).filter(ex => ex.category !== 'cardio')
+      results = searchExercises(searchQuery, customs).filter(ex => ex.category !== 'cardio')
     }
 
     if (selectedCategory) {
@@ -518,7 +774,7 @@ function StrengthLogger({
     }
 
     return results.slice(0, 50)
-  }, [searchQuery, selectedCategory])
+  }, [searchQuery, selectedCategory, customExercises])
 
   const muscleGroups = [
     { id: 'chest', label: 'Chest' },
@@ -544,6 +800,7 @@ function StrengthLogger({
     }
     setEntries([...entries, newEntry])
     setShowExerciseSearch(false)
+    setShowCustomForm(false)
     setSearchQuery('')
     setSelectedCategory(null)
   }
@@ -597,6 +854,18 @@ function StrengthLogger({
   }
 
   if (showExerciseSearch) {
+    if (showCustomForm) {
+      return (
+        <CreateCustomExerciseForm
+          onSave={async (exercise) => {
+            await addCustomExercise(exercise)
+            addExercise(exercise)
+          }}
+          onCancel={() => setShowCustomForm(false)}
+        />
+      )
+    }
+
     return (
       <div className="min-h-screen bg-background p-4 safe-area-inset">
         <header className="mb-4">
@@ -644,13 +913,24 @@ function StrengthLogger({
               onClick={() => addExercise(exercise)}
               className="w-full text-left p-3 rounded-xl bg-card hover:bg-secondary transition-colors"
             >
-              <p className="font-medium text-foreground">{exercise.name}</p>
+              <p className="font-medium text-foreground">
+                {exercise.name}
+                {exercise.isCustom && <span className="text-primary ml-1 text-xs">(custom)</span>}
+              </p>
               <p className="text-xs text-muted-foreground mt-0.5">
                 {exercise.primaryMuscles.join(', ')} • {exercise.category}
               </p>
             </button>
           ))}
         </div>
+
+        <Button
+          variant="outline"
+          className="w-full mt-4 border-dashed"
+          onClick={() => setShowCustomForm(true)}
+        >
+          + Create Custom Exercise
+        </Button>
       </div>
     )
   }
@@ -674,106 +954,68 @@ function StrengthLogger({
       </header>
 
       <div className="space-y-4">
-        {entries.map((entry) => (
-          <Card key={entry.id}>
-            <CardHeader className="pb-2">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-base">{entry.exercise.name}</CardTitle>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="text-destructive h-8 w-8 p-0"
-                  onClick={() => removeEntry(entry.id)}
-                >
-                  ×
-                </Button>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                {entry.exercise.primaryMuscles.join(', ')}
-              </p>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-2">
-                {/* Header */}
-                <div className="grid grid-cols-12 gap-2 text-xs text-muted-foreground px-1">
-                  <div className="col-span-1">Set</div>
-                  <div className="col-span-4">{weightUnit}</div>
-                  <div className="col-span-3">Reps</div>
-                  <div className="col-span-2">RPE</div>
-                  <div className="col-span-2"></div>
-                </div>
+        {groupEntriesForRender(entries).map((group) => {
+          if (group.type === 'superset') {
+            return (
+              <SupersetWrapper
+                key={group.groupId}
+                onUnlink={() => {
+                  // Dissolve entire superset group
+                  setEntries(prev => prev.map(e =>
+                    e.supersetGroupId === group.groupId ? { ...e, supersetGroupId: undefined } : e
+                  ))
+                }}
+              >
+                {group.entries.map((entry) => {
+                  const fields = getExerciseLogFields(entry.exercise.movementPattern, entry.exercise.category)
+                  const lastData = exerciseHistory[entry.exercise.id]
+                  const suggested = lastData ? getSuggestedWeight(lastData.weight, lastData.reps, lastData.rpe) : undefined
+                  return (
+                    <ExerciseCard
+                      key={entry.id}
+                      entry={entry}
+                      fields={fields}
+                      lastData={lastData}
+                      suggested={suggested}
+                      weightUnit={weightUnit}
+                      updateSet={updateSet}
+                      removeSet={removeSet}
+                      addSet={addSet}
+                      removeEntry={removeEntry}
+                      onLink={() => createSuperset(entries, entry.id, setEntries)}
 
-                {/* Sets */}
-                {entry.sets.map((set, setIndex) => (
-                  <div key={setIndex} className="grid grid-cols-12 gap-2 items-center">
-                    <div className="col-span-1 text-sm font-mono text-muted-foreground">
-                      {set.setNumber}
-                    </div>
-                    <div className="col-span-4">
-                      <Input
-                        type="number"
-                        placeholder="135"
-                        value={set.weight || ''}
-                        onChange={(e) => updateSet(entry.id, setIndex, { weight: parseFloat(e.target.value) || null })}
-                        className="h-10 text-center"
-                      />
-                    </div>
-                    <div className="col-span-3">
-                      <Input
-                        type="number"
-                        placeholder="10"
-                        value={set.reps || ''}
-                        onChange={(e) => updateSet(entry.id, setIndex, { reps: parseInt(e.target.value) || null })}
-                        className="h-10 text-center"
-                      />
-                    </div>
-                    <div className="col-span-2">
-                      <Input
-                        type="number"
-                        placeholder="7"
-                        value={set.rpe || ''}
-                        onChange={(e) => updateSet(entry.id, setIndex, { rpe: parseFloat(e.target.value) || null })}
-                        className="h-10 text-center"
-                        min={1}
-                        max={10}
-                      />
-                    </div>
-                    <div className="col-span-2 flex justify-end gap-1">
-                      <button
-                        onClick={() => updateSet(entry.id, setIndex, { completed: !set.completed })}
-                        className={cn(
-                          'w-8 h-8 rounded-lg flex items-center justify-center transition-colors',
-                          set.completed
-                            ? 'bg-success text-white'
-                            : 'bg-secondary text-muted-foreground'
-                        )}
-                      >
-                        {set.completed ? '✓' : ''}
-                      </button>
-                      {entry.sets.length > 1 && (
-                        <button
-                          onClick={() => removeSet(entry.id, setIndex)}
-                          className="w-8 h-8 rounded-lg bg-secondary text-muted-foreground flex items-center justify-center"
-                        >
-                          −
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                ))}
+                      isInSuperset={true}
+                      isLastEntry={false}
+                    />
+                  )
+                })}
+              </SupersetWrapper>
+            )
+          }
+          const entry = group.entry
+          const fields = getExerciseLogFields(entry.exercise.movementPattern, entry.exercise.category)
+          const lastData = exerciseHistory[entry.exercise.id]
+          const suggested = lastData ? getSuggestedWeight(lastData.weight, lastData.reps, lastData.rpe) : undefined
+          const idx = entries.findIndex(e => e.id === entry.id)
+          return (
+            <ExerciseCard
+              key={entry.id}
+              entry={entry}
+              fields={fields}
+              lastData={lastData}
+              suggested={suggested}
+              weightUnit={weightUnit}
+              updateSet={updateSet}
+              removeSet={removeSet}
+              addSet={addSet}
+              removeEntry={removeEntry}
+              onLink={() => createSuperset(entries, entry.id, setEntries)}
 
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="w-full text-primary"
-                  onClick={() => addSet(entry.id)}
-                >
-                  + Add Set
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
+              isInSuperset={false}
+              isLastEntry={idx === entries.length - 1}
+            />
+          )
+        })}
 
         <Button
           variant="outline"
@@ -784,7 +1026,7 @@ function StrengthLogger({
         </Button>
       </div>
 
-      {/* Bottom actions */}
+      {/* Bottom actions - StrengthLogger */}
       <div className="fixed bottom-0 left-0 right-0 p-4 bg-background/95 backdrop-blur-sm border-t border-border safe-area-inset">
         <div className="flex gap-3 max-w-md mx-auto">
           <Button variant="outline" className="flex-1" onClick={onCancel}>
@@ -801,6 +1043,210 @@ function StrengthLogger({
         </div>
       </div>
     </div>
+  )
+}
+
+// ============================================================================
+// Shared Exercise Card Components
+// ============================================================================
+
+function ExerciseCard({
+  entry,
+  fields,
+  lastData,
+  suggested,
+  weightUnit,
+  updateSet,
+  removeSet,
+  addSet,
+  removeEntry,
+  onLink,
+  isInSuperset,
+  isLastEntry,
+}: {
+  entry: QuickLogEntryState
+  fields: LogFieldType[]
+  lastData?: { weight: number; reps: number; rpe: number | null }
+  suggested?: number
+  weightUnit: string
+  updateSet: (entryId: string, setIndex: number, updates: Partial<QuickLogSet>) => void
+  removeSet: (entryId: string, setIndex: number) => void
+  addSet: (entryId: string) => void
+  removeEntry: (entryId: string) => void
+  onLink: () => void
+  isInSuperset: boolean
+  isLastEntry: boolean
+}) {
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-base">{entry.exercise.name}</CardTitle>
+          <div className="flex gap-1">
+            {!isInSuperset && !isLastEntry && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 w-8 p-0 text-muted-foreground hover:text-primary"
+                onClick={onLink}
+                title="Create superset with next exercise"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+              </Button>
+            )}
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-destructive h-8 w-8 p-0"
+              onClick={() => removeEntry(entry.id)}
+            >
+              ×
+            </Button>
+          </div>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          {entry.exercise.primaryMuscles.join(', ')}
+        </p>
+        {lastData && (
+          <p className="text-xs text-primary/70">
+            Last: {lastData.weight} x {lastData.reps}{lastData.rpe ? ` @ RPE ${lastData.rpe}` : ''}
+          </p>
+        )}
+      </CardHeader>
+      <CardContent>
+        <div className="space-y-2">
+          <DynamicSetHeader fields={fields} weightUnit={weightUnit} />
+          {entry.sets.map((set, setIndex) => (
+            <DynamicSetRow
+              key={setIndex}
+              set={set}
+              setIndex={setIndex}
+              entryId={entry.id}
+              fields={fields}
+              suggestedWeight={suggested}
+              updateSet={updateSet}
+              removeSet={removeSet}
+              canRemove={entry.sets.length > 1}
+            />
+          ))}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="w-full text-primary"
+            onClick={() => addSet(entry.id)}
+          >
+            + Add Set
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+function TemplateExerciseCard({
+  entry,
+  fields,
+  lastData,
+  suggested,
+  weightUnit,
+  repRange,
+  updateSet,
+  removeSet,
+  addSet,
+  removeEntry,
+  onSwapExercise,
+  onLink,
+  isInSuperset,
+  isLastEntry,
+}: {
+  entry: QuickLogEntryState
+  fields: LogFieldType[]
+  lastData?: { weight: number; reps: number; rpe: number | null }
+  suggested?: number
+  weightUnit: string
+  repRange: [number, number]
+  updateSet: (entryId: string, setIndex: number, updates: Partial<QuickLogSet>) => void
+  removeSet: (entryId: string, setIndex: number) => void
+  addSet: (entryId: string) => void
+  removeEntry: (entryId: string) => void
+  onSwapExercise: (entryId: string) => void
+  onLink: () => void
+  isInSuperset: boolean
+  isLastEntry: boolean
+}) {
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-base">{entry.exercise.name}</CardTitle>
+          <div className="flex gap-1">
+            {!isInSuperset && !isLastEntry && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 w-8 p-0 text-muted-foreground hover:text-primary"
+                onClick={onLink}
+                title="Create superset with next exercise"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+              </Button>
+            )}
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8 w-8 p-0 text-muted-foreground hover:text-primary"
+              onClick={() => onSwapExercise(entry.id)}
+              title="Swap exercise"
+            >
+              🔄
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-destructive h-8 w-8 p-0"
+              onClick={() => removeEntry(entry.id)}
+            >
+              ×
+            </Button>
+          </div>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          {entry.exercise.primaryMuscles.join(', ')}
+        </p>
+        {lastData && (
+          <p className="text-xs text-primary/70">
+            Last: {lastData.weight} x {lastData.reps}{lastData.rpe ? ` @ RPE ${lastData.rpe}` : ''}
+          </p>
+        )}
+      </CardHeader>
+      <CardContent>
+        <div className="space-y-2">
+          <DynamicSetHeader fields={fields} weightUnit={weightUnit} />
+          {entry.sets.map((set, setIndex) => (
+            <DynamicSetRow
+              key={setIndex}
+              set={set}
+              setIndex={setIndex}
+              entryId={entry.id}
+              fields={fields}
+              suggestedWeight={suggested}
+              repRange={repRange}
+              updateSet={updateSet}
+              removeSet={removeSet}
+              canRemove={entry.sets.length > 1}
+            />
+          ))}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="w-full text-primary"
+            onClick={() => addSet(entry.id)}
+          >
+            + Add Set
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
   )
 }
 
@@ -1319,6 +1765,7 @@ function TemplateWorkoutLogger({
   duration,
   weightUnit,
   repRange,
+  userId,
 }: {
   entries: QuickLogEntryState[]
   setEntries: React.Dispatch<React.SetStateAction<QuickLogEntryState[]>>
@@ -1331,16 +1778,23 @@ function TemplateWorkoutLogger({
   duration: number
   weightUnit: 'lbs' | 'kg'
   repRange: [number, number]
+  userId?: string
 }) {
   const [showExerciseSearch, setShowExerciseSearch] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
+  const [showCustomForm, setShowCustomForm] = useState(false)
+
+  const exerciseIds = useMemo(() => entries.map(e => e.exercise.id), [entries])
+  const exerciseHistory = useExerciseHistory(userId, exerciseIds)
+  const customExercises = useLiveQuery(() => getCustomExercises(), [])
 
   const filteredExercises = useMemo(() => {
-    let results = EXERCISE_LIBRARY.filter(ex => ex.category !== 'cardio')
+    const customs = customExercises || []
+    let results = [...EXERCISE_LIBRARY, ...customs].filter(ex => ex.category !== 'cardio')
 
     if (searchQuery) {
-      results = searchExercises(searchQuery).filter(ex => ex.category !== 'cardio')
+      results = searchExercises(searchQuery, customs).filter(ex => ex.category !== 'cardio')
     }
 
     if (selectedCategory) {
@@ -1350,7 +1804,7 @@ function TemplateWorkoutLogger({
     }
 
     return results.slice(0, 50)
-  }, [searchQuery, selectedCategory])
+  }, [searchQuery, selectedCategory, customExercises])
 
   const muscleGroups = [
     { id: 'chest', label: 'Chest' },
@@ -1376,6 +1830,7 @@ function TemplateWorkoutLogger({
     }
     setEntries([...entries, newEntry])
     setShowExerciseSearch(false)
+    setShowCustomForm(false)
     setSearchQuery('')
     setSelectedCategory(null)
   }
@@ -1429,6 +1884,18 @@ function TemplateWorkoutLogger({
   }
 
   if (showExerciseSearch) {
+    if (showCustomForm) {
+      return (
+        <CreateCustomExerciseForm
+          onSave={async (exercise) => {
+            await addCustomExercise(exercise)
+            addExercise(exercise)
+          }}
+          onCancel={() => setShowCustomForm(false)}
+        />
+      )
+    }
+
     return (
       <div className="min-h-screen bg-background p-4 safe-area-inset">
         <header className="mb-4">
@@ -1476,13 +1943,24 @@ function TemplateWorkoutLogger({
               onClick={() => addExercise(exercise)}
               className="w-full text-left p-3 rounded-xl bg-card hover:bg-secondary transition-colors"
             >
-              <p className="font-medium text-foreground">{exercise.name}</p>
+              <p className="font-medium text-foreground">
+                {exercise.name}
+                {exercise.isCustom && <span className="text-primary ml-1 text-xs">(custom)</span>}
+              </p>
               <p className="text-xs text-muted-foreground mt-0.5">
                 {exercise.primaryMuscles.join(', ')} • {exercise.category}
               </p>
             </button>
           ))}
         </div>
+
+        <Button
+          variant="outline"
+          className="w-full mt-4 border-dashed"
+          onClick={() => setShowCustomForm(true)}
+        >
+          + Create Custom Exercise
+        </Button>
       </div>
     )
   }
@@ -1509,117 +1987,71 @@ function TemplateWorkoutLogger({
       </header>
 
       <div className="space-y-4">
-        {entries.map((entry) => (
-          <Card key={entry.id}>
-            <CardHeader className="pb-2">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-base">{entry.exercise.name}</CardTitle>
-                <div className="flex gap-1">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-8 w-8 p-0 text-muted-foreground hover:text-primary"
-                    onClick={() => onSwapExercise(entry.id)}
-                    title="Swap exercise"
-                  >
-                    🔄
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="text-destructive h-8 w-8 p-0"
-                    onClick={() => removeEntry(entry.id)}
-                  >
-                    ×
-                  </Button>
-                </div>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                {entry.exercise.primaryMuscles.join(', ')}
-              </p>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-2">
-                {/* Header */}
-                <div className="grid grid-cols-12 gap-2 text-xs text-muted-foreground px-1">
-                  <div className="col-span-1">Set</div>
-                  <div className="col-span-4">{weightUnit}</div>
-                  <div className="col-span-3">Reps</div>
-                  <div className="col-span-2">RPE</div>
-                  <div className="col-span-2"></div>
-                </div>
+        {groupEntriesForRender(entries).map((group) => {
+          if (group.type === 'superset') {
+            return (
+              <SupersetWrapper
+                key={group.groupId}
+                onUnlink={() => {
+                  setEntries(prev => prev.map(e =>
+                    e.supersetGroupId === group.groupId ? { ...e, supersetGroupId: undefined } : e
+                  ))
+                }}
+              >
+                {group.entries.map((entry) => {
+                  const fields = getExerciseLogFields(entry.exercise.movementPattern, entry.exercise.category)
+                  const lastData = exerciseHistory[entry.exercise.id]
+                  const suggested = lastData ? getSuggestedWeight(lastData.weight, lastData.reps, lastData.rpe) : undefined
+                  return (
+                    <TemplateExerciseCard
+                      key={entry.id}
+                      entry={entry}
+                      fields={fields}
+                      lastData={lastData}
+                      suggested={suggested}
+                      weightUnit={weightUnit}
+                      repRange={repRange}
+                      updateSet={updateSet}
+                      removeSet={removeSet}
+                      addSet={addSet}
+                      removeEntry={removeEntry}
+                      onSwapExercise={onSwapExercise}
+                      onLink={() => createSuperset(entries, entry.id, setEntries)}
 
-                {/* Sets */}
-                {entry.sets.map((set, setIndex) => (
-                  <div key={setIndex} className="grid grid-cols-12 gap-2 items-center">
-                    <div className="col-span-1 text-sm font-mono text-muted-foreground">
-                      {set.setNumber}
-                    </div>
-                    <div className="col-span-4">
-                      <Input
-                        type="number"
-                        placeholder="135"
-                        value={set.weight || ''}
-                        onChange={(e) => updateSet(entry.id, setIndex, { weight: parseFloat(e.target.value) || null })}
-                        className="h-10 text-center"
-                      />
-                    </div>
-                    <div className="col-span-3">
-                      <Input
-                        type="number"
-                        placeholder={`${repRange[0]}-${repRange[1]}`}
-                        value={set.reps || ''}
-                        onChange={(e) => updateSet(entry.id, setIndex, { reps: parseInt(e.target.value) || null })}
-                        className="h-10 text-center"
-                      />
-                    </div>
-                    <div className="col-span-2">
-                      <Input
-                        type="number"
-                        placeholder="7"
-                        value={set.rpe || ''}
-                        onChange={(e) => updateSet(entry.id, setIndex, { rpe: parseFloat(e.target.value) || null })}
-                        className="h-10 text-center"
-                        min={1}
-                        max={10}
-                      />
-                    </div>
-                    <div className="col-span-2 flex justify-end gap-1">
-                      <button
-                        onClick={() => updateSet(entry.id, setIndex, { completed: !set.completed })}
-                        className={cn(
-                          'w-8 h-8 rounded-lg flex items-center justify-center transition-colors',
-                          set.completed
-                            ? 'bg-success text-white'
-                            : 'bg-secondary text-muted-foreground'
-                        )}
-                      >
-                        {set.completed ? '✓' : ''}
-                      </button>
-                      {entry.sets.length > 1 && (
-                        <button
-                          onClick={() => removeSet(entry.id, setIndex)}
-                          className="w-8 h-8 rounded-lg bg-secondary text-muted-foreground flex items-center justify-center"
-                        >
-                          −
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                ))}
+                      isInSuperset={true}
+                      isLastEntry={false}
+                    />
+                  )
+                })}
+              </SupersetWrapper>
+            )
+          }
+          const entry = group.entry
+          const fields = getExerciseLogFields(entry.exercise.movementPattern, entry.exercise.category)
+          const lastData = exerciseHistory[entry.exercise.id]
+          const suggested = lastData ? getSuggestedWeight(lastData.weight, lastData.reps, lastData.rpe) : undefined
+          const idx = entries.findIndex(e => e.id === entry.id)
+          return (
+            <TemplateExerciseCard
+              key={entry.id}
+              entry={entry}
+              fields={fields}
+              lastData={lastData}
+              suggested={suggested}
+              weightUnit={weightUnit}
+              repRange={repRange}
+              updateSet={updateSet}
+              removeSet={removeSet}
+              addSet={addSet}
+              removeEntry={removeEntry}
+              onSwapExercise={onSwapExercise}
+              onLink={() => createSuperset(entries, entry.id, setEntries)}
 
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="w-full text-primary"
-                  onClick={() => addSet(entry.id)}
-                >
-                  + Add Set
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
+              isInSuperset={false}
+              isLastEntry={idx === entries.length - 1}
+            />
+          )
+        })}
 
         <Button
           variant="outline"
@@ -1630,7 +2062,7 @@ function TemplateWorkoutLogger({
         </Button>
       </div>
 
-      {/* Bottom actions */}
+      {/* Bottom actions - TemplateWorkoutLogger */}
       <div className="fixed bottom-0 left-0 right-0 p-4 bg-background/95 backdrop-blur-sm border-t border-border safe-area-inset">
         <div className="flex gap-3 max-w-md mx-auto">
           <Button variant="outline" className="flex-1" onClick={onCancel}>
@@ -1645,6 +2077,201 @@ function TemplateWorkoutLogger({
             Complete Workout
           </Button>
         </div>
+      </div>
+    </div>
+  )
+}
+
+// ============================================================================
+// Custom Exercise Creation Form
+// ============================================================================
+
+function CreateCustomExerciseForm({
+  onSave,
+  onCancel,
+}: {
+  onSave: (exercise: Exercise) => void
+  onCancel: () => void
+}) {
+  const [name, setName] = useState('')
+  const [primaryMuscle, setPrimaryMuscle] = useState<string>('chest')
+  const [equipment, setEquipment] = useState<string>('barbell')
+  const [movementPattern, setMovementPattern] = useState<string>('horizontal_push')
+  const [category, setCategory] = useState<string>('compound')
+  const [isSaving, setIsSaving] = useState(false)
+
+  const muscleOptions = [
+    'chest', 'back', 'shoulders', 'biceps', 'triceps', 'forearms',
+    'quads', 'hamstrings', 'glutes', 'calves', 'core', 'full_body',
+  ]
+
+  const equipmentOptions = [
+    { value: 'barbell', label: 'Barbell' },
+    { value: 'dumbbell', label: 'Dumbbell' },
+    { value: 'cable', label: 'Cable' },
+    { value: 'machine', label: 'Machine' },
+    { value: 'bodyweight', label: 'Bodyweight' },
+    { value: 'kettlebell', label: 'Kettlebell' },
+    { value: 'band', label: 'Band' },
+    { value: 'none', label: 'None' },
+  ]
+
+  const patternOptions = [
+    { value: 'horizontal_push', label: 'Push (Horizontal)' },
+    { value: 'horizontal_pull', label: 'Pull (Horizontal)' },
+    { value: 'vertical_push', label: 'Push (Vertical)' },
+    { value: 'vertical_pull', label: 'Pull (Vertical)' },
+    { value: 'squat', label: 'Squat' },
+    { value: 'hinge', label: 'Hinge' },
+    { value: 'lunge', label: 'Lunge' },
+    { value: 'carry', label: 'Carry' },
+    { value: 'rotation', label: 'Rotation' },
+    { value: 'isolation', label: 'Isolation' },
+    { value: 'conditioning', label: 'Conditioning' },
+  ]
+
+  const categoryOptions = [
+    { value: 'compound', label: 'Compound' },
+    { value: 'accessory', label: 'Accessory' },
+    { value: 'isolation', label: 'Isolation' },
+    { value: 'conditioning', label: 'Conditioning' },
+    { value: 'core', label: 'Core' },
+  ]
+
+  const handleSave = async () => {
+    if (!name.trim()) return
+    setIsSaving(true)
+
+    const exercise: Exercise = {
+      id: `custom-${generateId()}`,
+      name: name.trim(),
+      category: category as Exercise['category'],
+      primaryMuscles: [primaryMuscle as Exercise['primaryMuscles'][0]],
+      secondaryMuscles: [],
+      equipment: [equipment as Exercise['equipment'][0]],
+      movementPattern: movementPattern as Exercise['movementPattern'],
+      injuryContraindications: [],
+      substitutes: [],
+      cues: [],
+      isCompound: category === 'compound',
+      isUnilateral: false,
+      isCustom: true,
+    }
+
+    onSave(exercise)
+  }
+
+  return (
+    <div className="min-h-screen bg-background p-4 safe-area-inset">
+      <header className="mb-6">
+        <div className="flex items-center justify-between">
+          <h2 className="text-xl font-bold text-foreground">Create Exercise</h2>
+          <Button variant="ghost" size="sm" onClick={onCancel}>
+            Cancel
+          </Button>
+        </div>
+      </header>
+
+      <div className="space-y-4">
+        <div>
+          <label className="text-sm text-muted-foreground block mb-2">Exercise Name *</label>
+          <Input
+            placeholder="e.g., Cable Fly"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            autoFocus
+          />
+        </div>
+
+        <div>
+          <label className="text-sm text-muted-foreground block mb-2">Primary Muscle</label>
+          <div className="flex flex-wrap gap-2">
+            {muscleOptions.map(muscle => (
+              <button
+                key={muscle}
+                onClick={() => setPrimaryMuscle(muscle)}
+                className={cn(
+                  'px-3 py-1.5 rounded-full text-xs font-medium transition-colors capitalize',
+                  primaryMuscle === muscle
+                    ? 'bg-primary text-primary-foreground'
+                    : 'bg-secondary text-muted-foreground'
+                )}
+              >
+                {muscle.replace('_', ' ')}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <label className="text-sm text-muted-foreground block mb-2">Equipment</label>
+          <div className="flex flex-wrap gap-2">
+            {equipmentOptions.map(eq => (
+              <button
+                key={eq.value}
+                onClick={() => setEquipment(eq.value)}
+                className={cn(
+                  'px-3 py-1.5 rounded-full text-xs font-medium transition-colors',
+                  equipment === eq.value
+                    ? 'bg-primary text-primary-foreground'
+                    : 'bg-secondary text-muted-foreground'
+                )}
+              >
+                {eq.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <label className="text-sm text-muted-foreground block mb-2">Movement Pattern</label>
+          <div className="flex flex-wrap gap-2">
+            {patternOptions.map(p => (
+              <button
+                key={p.value}
+                onClick={() => setMovementPattern(p.value)}
+                className={cn(
+                  'px-3 py-1.5 rounded-full text-xs font-medium transition-colors',
+                  movementPattern === p.value
+                    ? 'bg-primary text-primary-foreground'
+                    : 'bg-secondary text-muted-foreground'
+                )}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <label className="text-sm text-muted-foreground block mb-2">Category</label>
+          <div className="flex flex-wrap gap-2">
+            {categoryOptions.map(c => (
+              <button
+                key={c.value}
+                onClick={() => setCategory(c.value)}
+                className={cn(
+                  'px-3 py-1.5 rounded-full text-xs font-medium transition-colors',
+                  category === c.value
+                    ? 'bg-primary text-primary-foreground'
+                    : 'bg-secondary text-muted-foreground'
+                )}
+              >
+                {c.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <Button
+          className="w-full"
+          size="lg"
+          onClick={handleSave}
+          disabled={!name.trim() || isSaving}
+          loading={isSaving}
+        >
+          Create & Add Exercise
+        </Button>
       </div>
     </div>
   )

@@ -264,6 +264,7 @@ export interface QuickLogEntry {
   order: number
   sets: QuickLogSet[]
   notes: string
+  supersetGroupId?: string    // Entries sharing same groupId are a superset
 }
 
 export interface QuickLogSet {
@@ -502,6 +503,8 @@ export interface Exercise {
   cues: string[]
   isCompound: boolean
   isUnilateral: boolean
+  // Custom exercise flag
+  isCustom?: boolean
   // Cardio-specific fields (only for cardio exercises)
   cardioType?: CardioType
   tracksDistance?: boolean

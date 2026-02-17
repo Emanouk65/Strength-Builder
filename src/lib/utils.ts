@@ -167,6 +167,68 @@ export function getCurrentWeekDates(): Date[] {
 }
 
 /**
+ * Get which input fields to show for an exercise based on its movement pattern
+ */
+export type LogFieldType = 'weight' | 'reps' | 'duration' | 'distance' | 'rpe'
+
+export function getExerciseLogFields(movementPattern: string, _category?: string): LogFieldType[] {
+  switch (movementPattern) {
+    case 'carry':
+      return ['weight', 'distance', 'duration', 'rpe']
+    case 'cardio_steady':
+    case 'cardio_intervals':
+      return ['distance', 'duration', 'rpe']
+    case 'plyometric':
+      return ['reps', 'rpe']
+    default:
+      return ['weight', 'reps', 'rpe']
+  }
+}
+
+/**
+ * Get suggested weight based on last workout performance
+ */
+export function getSuggestedWeight(
+  lastWeight: number,
+  lastReps: number,
+  lastRPE: number | null,
+  targetReps?: number
+): number {
+  const rpe = lastRPE ?? 7
+
+  let suggestedWeight = lastWeight
+
+  // Progressive overload logic based on RPE
+  if (rpe < 7) {
+    // Easy - suggest increasing weight
+    suggestedWeight = lastWeight + 5
+  } else if (rpe >= 7 && rpe <= 8) {
+    // Good working range - keep same weight
+    suggestedWeight = lastWeight
+  } else {
+    // Hard (RPE > 8) - keep same weight
+    suggestedWeight = lastWeight
+  }
+
+  // Adjust for rep range differences if target reps specified
+  if (targetReps && targetReps !== lastReps && lastReps > 0) {
+    // Use percentage-based scaling: ~2.5% per rep difference
+    const repDiff = targetReps - lastReps
+    const adjustment = 1 - (repDiff * 0.025)
+    suggestedWeight = Math.round(suggestedWeight * adjustment / 5) * 5 // Round to nearest 5
+  }
+
+  return Math.max(suggestedWeight, 0)
+}
+
+/**
+ * Get local date string in YYYY-MM-DD format (avoids UTC timezone issues with toISOString)
+ */
+export function getLocalDateString(date = new Date()): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+}
+
+/**
  * Sleep for a given number of milliseconds
  */
 export function sleep(ms: number): Promise<void> {
