@@ -16,13 +16,14 @@ export function History() {
       const thirtyDaysAgo = new Date()
       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
 
-      return db.workouts
+      const workouts = await db.workouts
         .where('status')
         .equals('completed')
         .filter((w) => new Date(w.completedAt!) >= thirtyDaysAgo)
-        .reverse()
-        .limit(20)
         .toArray()
+      return workouts
+        .sort((a, b) => new Date(b.completedAt!).getTime() - new Date(a.completedAt!).getTime())
+        .slice(0, 20)
     },
     [user]
   )
