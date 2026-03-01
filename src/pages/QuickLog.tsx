@@ -963,6 +963,24 @@ function ExerciseCard({
 
       {/* Set rows */}
       <div className="px-3 pb-3 pt-2.5 space-y-1.5">
+        {/* Column headers */}
+        <div className="flex items-center gap-1.5 px-2 pb-0.5">
+          <span className="w-6 text-[10px] text-center text-muted-foreground/40 font-medium uppercase tracking-wider">#</span>
+          {fields.filter(f => f !== 'rpe').map((f, fi, arr) => (
+            <React.Fragment key={f}>
+              {fi === 1 && arr.length === 2 && <span className="text-transparent text-xs flex-shrink-0 select-none">×</span>}
+              <span className="flex-1 text-[10px] text-center text-muted-foreground/40 font-medium uppercase tracking-wider">
+                {f === 'weight' ? weightUnit : f === 'reps' ? 'Reps' : f === 'duration' ? 'Sec' : 'Dist'}
+              </span>
+            </React.Fragment>
+          ))}
+          {fields.includes('rpe') && (
+            <span className="w-11 text-[10px] text-center text-muted-foreground/40 font-medium uppercase tracking-wider">RPE</span>
+          )}
+          <span className="w-10 text-[10px] text-center text-muted-foreground/40 font-medium uppercase tracking-wider">Done</span>
+          {entry.sets.length > 1 && <span className="w-6" />}
+        </div>
+
         {entry.sets.map((set, setIndex) => (
           <QuickSetRow
             key={setIndex}
