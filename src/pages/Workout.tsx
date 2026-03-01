@@ -8,28 +8,19 @@ import {
   updateStreakOnWorkoutComplete,
   checkTimeBasedAchievements,
   checkIronWillAchievement,
+  getBestLift,
 } from '@/db'
-import { Button, Card, CardContent, CardHeader, CardTitle, Badge, Input, Slider, Progress } from '@/components/ui'
+import { Button, Card, CardContent, CardHeader, CardTitle, Badge, Input, Slider } from '@/components/ui'
 import { cn, getRPEColor, generateId } from '@/lib/utils'
 import { BLOCK_CONFIG, RPE_DESCRIPTIONS, ACHIEVEMENTS, getStreakMessage } from '@/lib/constants'
 import type { BlockType, SetInstance, WorkoutReflection, AchievementId } from '@/lib/types'
 
-// Encouraging messages for set completion
 const SET_COMPLETE_MESSAGES = [
-  "Nice lift!",
-  "Crushed it!",
-  "Strong!",
-  "Let's go!",
-  "Beast mode!",
-  "Solid set!",
-  "That's how it's done!",
-  "Keep pushing!",
-  "On fire!",
-  "Locked in!",
+  "Nice lift!", "Crushed it!", "Strong!", "Let's go!", "Beast mode!",
+  "Solid set!", "That's how it's done!", "Keep pushing!", "On fire!", "Locked in!",
 ]
 
-// Get random encouraging message
-function getEncouragingMessage(): string {
+function getEncouragingMessage() {
   return SET_COMPLETE_MESSAGES[Math.floor(Math.random() * SET_COMPLETE_MESSAGES.length)]
 }
 
@@ -40,14 +31,10 @@ export function Workout() {
   const [showReflection, setShowReflection] = useState(false)
 
   const workoutData = useLiveQuery(
-    async () => {
-      if (!workoutId) return null
-      return getWorkoutWithDetails(workoutId)
-    },
+    async () => { if (!workoutId) return null; return getWorkoutWithDetails(workoutId) },
     [workoutId]
   )
 
-  // Mark workout as in_progress when starting
   useEffect(() => {
     if (workoutData && workoutData.status === 'planned') {
       db.workouts.update(workoutData.id, { status: 'in_progress' })
@@ -57,12 +44,10 @@ export function Workout() {
   if (!workoutId) {
     return (
       <div className="flex items-center justify-center min-h-screen p-4">
-        <Card className="w-full max-w-md text-center">
-          <CardContent className="py-8">
-            <p className="text-muted-foreground mb-4">No workout selected</p>
-            <Button onClick={() => navigate('/')}>Back to Dashboard</Button>
-          </CardContent>
-        </Card>
+        <div className="text-center">
+          <p className="text-muted-foreground mb-4">No workout selected</p>
+          <Button onClick={() => navigate('/')}>Back to Dashboard</Button>
+        </div>
       </div>
     )
   }
@@ -70,7 +55,7 @@ export function Workout() {
   if (!workoutData) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+        <div className="h-10 w-10 animate-spin rounded-full border-4 border-primary border-t-transparent" />
       </div>
     )
   }
@@ -85,245 +70,242 @@ export function Workout() {
     )
   }
 
-  // Show summary view for completed workouts
   if (workoutData.status === 'completed') {
-    return (
-      <WorkoutSummary
-        workout={workoutData}
-        onBack={() => navigate('/history')}
-      />
-    )
+    return <WorkoutSummary workout={workoutData} onBack={() => navigate('/history')} />
   }
 
   const currentBlock = workoutData.blocks[currentBlockIndex]
 
-  // Handle case where there are no blocks
   if (!currentBlock) {
     return (
       <div className="flex items-center justify-center min-h-screen p-4">
-        <Card className="w-full max-w-md text-center">
-          <CardContent className="py-8">
-            <p className="text-muted-foreground mb-4">This workout has no exercises configured</p>
-            <Button onClick={() => navigate('/')}>Back to Dashboard</Button>
-          </CardContent>
-        </Card>
+        <div className="text-center">
+          <p className="text-muted-foreground mb-4">This workout has no exercises configured</p>
+          <Button onClick={() => navigate('/')}>Back to Dashboard</Button>
+        </div>
       </div>
     )
   }
+
   const totalBlocks = workoutData.blocks.length
   const completedBlocks = workoutData.blocks.filter(b => b.completed).length
   const progress = (completedBlocks / totalBlocks) * 100
 
-  // Calculate total sets completed across all blocks
-  const totalSetsCompleted = workoutData.blocks.reduce((acc, block) => {
-    return acc + block.exercises.reduce((setAcc, ex) => {
-      return setAcc + ex.sets.filter(s => s.completed).length
-    }, 0)
-  }, 0)
+  const totalSetsCompleted = workoutData.blocks.reduce(
+    (acc, block) => acc + block.exercises.reduce((s, ex) => s + ex.sets.filter(s => s.completed).length, 0),
+    0
+  )
+  const totalSets = workoutData.blocks.reduce(
+    (acc, block) => acc + block.exercises.reduce((s, ex) => s + ex.sets.length, 0),
+    0
+  )
 
-  const totalSets = workoutData.blocks.reduce((acc, block) => {
-    return acc + block.exercises.reduce((setAcc, ex) => {
-      return setAcc + ex.sets.length
-    }, 0)
-  }, 0)
-
-  // Check if current block is fully completed
-  const currentBlockSetsCompleted = currentBlock.exercises.reduce((acc, ex) => {
-    return acc + ex.sets.filter(s => s.completed).length
-  }, 0)
-  const currentBlockTotalSets = currentBlock.exercises.reduce((acc, ex) => {
-    return acc + ex.sets.length
-  }, 0)
+  const currentBlockSetsCompleted = currentBlock.exercises.reduce(
+    (acc, ex) => acc + ex.sets.filter(s => s.completed).length, 0
+  )
+  const currentBlockTotalSets = currentBlock.exercises.reduce((acc, ex) => acc + ex.sets.length, 0)
   const isCurrentBlockComplete = currentBlockSetsCompleted === currentBlockTotalSets && currentBlockTotalSets > 0
 
   const handleBlockComplete = async () => {
     await db.workoutBlocks.update(currentBlock.id, { completed: true })
-
     if (currentBlockIndex < totalBlocks - 1) {
       setCurrentBlockIndex(currentBlockIndex + 1)
     } else {
-      // All blocks complete, show reflection
       setShowReflection(true)
     }
   }
 
   const handleExit = () => {
-    if (confirm('Exit workout? Your progress is saved.')) {
-      navigate('/')
-    }
+    if (confirm('Exit workout? Your progress is saved.')) navigate('/')
   }
 
   return (
-    <div className="min-h-screen bg-background p-4 pb-8">
-      {/* Header */}
-      <header className="flex items-center justify-between mb-4">
-        <button
-          onClick={handleExit}
-          className="p-2 -ml-2 text-muted-foreground hover:text-foreground"
-        >
-          <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-          </svg>
-        </button>
-        <div className="text-center">
-          <p className="text-xs text-muted-foreground">{workoutData.name}</p>
-          <p className="text-sm font-medium">
-            Block {currentBlockIndex + 1} of {totalBlocks}
-          </p>
-        </div>
-        {/* Sets counter badge */}
-        <div className="flex items-center gap-1 bg-primary/10 px-2 py-1 rounded-full">
-          <span className="text-xs font-bold text-primary">{totalSetsCompleted}</span>
-          <span className="text-xs text-muted-foreground">/ {totalSets}</span>
-        </div>
-      </header>
+    <div className="min-h-screen bg-background pb-8">
+      {/* Sticky Header */}
+      <div className="sticky top-0 z-20 bg-background/95 backdrop-blur-xl border-b border-border/30 px-4 py-3">
+        <div className="flex items-center justify-between mb-3">
+          <button
+            onClick={handleExit}
+            className="w-9 h-9 rounded-xl bg-secondary flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+              <path d="M18 6 6 18M6 6l12 12" />
+            </svg>
+          </button>
 
-      {/* Progress bar with shimmer effect when in progress */}
-      <div className="relative mb-6">
-        <Progress value={progress} className={cn(totalSetsCompleted > 0 && totalSetsCompleted < totalSets && 'animate-glow')} />
-        {totalSetsCompleted > 0 && totalSetsCompleted < totalSets && (
-          <div className="absolute inset-0 progress-shimmer rounded-full pointer-events-none" />
-        )}
+          <div className="text-center">
+            <p className="text-xs font-semibold text-muted-foreground">{workoutData.name}</p>
+            <p className="text-sm font-bold">
+              Block {currentBlockIndex + 1} / {totalBlocks}
+            </p>
+          </div>
+
+          {/* Set counter */}
+          <div className="flex items-center gap-1 bg-primary/10 px-3 py-1.5 rounded-full">
+            <span className="text-sm font-black text-primary">{totalSetsCompleted}</span>
+            <span className="text-xs text-muted-foreground">/{totalSets}</span>
+          </div>
+        </div>
+
+        {/* Progress bar */}
+        <div className="relative h-1.5 bg-secondary rounded-full overflow-hidden">
+          <div
+            className={cn(
+              'h-full rounded-full transition-all duration-500',
+              progress === 100 ? 'bg-success' : 'bg-gradient-to-r from-primary to-[#7209B7]'
+            )}
+            style={{ width: `${Math.max(progress, totalSets > 0 ? (totalSetsCompleted / totalSets) * 100 : 0)}%` }}
+          />
+          {totalSetsCompleted > 0 && totalSetsCompleted < totalSets && (
+            <div className="absolute inset-0 progress-shimmer" />
+          )}
+        </div>
       </div>
 
-      {/* Motivational stat bar */}
+      {/* Sets crushed banner */}
       {totalSetsCompleted > 0 && (
-        <div className="flex items-center justify-center gap-2 mb-4 animate-slide-up">
-          <span className="text-2xl">💪</span>
-          <span className="text-sm font-medium text-primary">
-            {totalSetsCompleted} set{totalSetsCompleted !== 1 ? 's' : ''} crushed!
-          </span>
+        <div className="px-4 pt-3 animate-slide-up">
+          <div className="bg-primary/10 rounded-xl px-4 py-2 flex items-center gap-2">
+            <span className="text-lg">💪</span>
+            <span className="text-sm font-bold text-primary">
+              {totalSetsCompleted} set{totalSetsCompleted !== 1 ? 's' : ''} crushed!
+            </span>
+          </div>
         </div>
       )}
 
       {/* Current Block */}
-      <Card className="mb-6">
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <div>
-              <Badge
-                className={cn('mb-2', BLOCK_CONFIG[currentBlock.type as BlockType]?.color)}
-                variant="outline"
-              >
-                {BLOCK_CONFIG[currentBlock.type as BlockType]?.label || currentBlock.type}
-              </Badge>
-              <CardTitle>{currentBlock.intent || BLOCK_CONFIG[currentBlock.type as BlockType]?.description}</CardTitle>
+      <div className="p-4">
+        <div className="rounded-2xl bg-card border border-border/50 shadow-card overflow-hidden mb-4">
+          {/* Block header */}
+          <div className="px-4 pt-4 pb-3 border-b border-border/30">
+            <div className="flex items-center justify-between">
+              <div>
+                <Badge
+                  className={cn('mb-2 text-xs font-bold uppercase tracking-wider', BLOCK_CONFIG[currentBlock.type as BlockType]?.color)}
+                  variant="outline"
+                >
+                  {BLOCK_CONFIG[currentBlock.type as BlockType]?.label || currentBlock.type}
+                </Badge>
+                <h2 className="text-lg font-bold leading-tight">
+                  {currentBlock.intent || BLOCK_CONFIG[currentBlock.type as BlockType]?.description}
+                </h2>
+              </div>
+              <span className="text-sm font-mono text-muted-foreground bg-secondary px-2 py-1 rounded-lg">
+                ~{currentBlock.timeTarget}m
+              </span>
             </div>
-            <span className="text-sm text-muted-foreground">
-              ~{currentBlock.timeTarget}m
-            </span>
           </div>
-        </CardHeader>
-        <CardContent>
-          {currentBlock.exercises.length > 0 ? (
-            <div className="space-y-4">
-              {currentBlock.exercises.map((exerciseInstance, index) => (
-                <ExerciseBlock
-                  key={exerciseInstance.id}
-                  exerciseInstance={exerciseInstance}
-                  isLast={index === currentBlock.exercises.length - 1}
-                />
-              ))}
-            </div>
-          ) : (
-            <div className="py-8 text-center">
-              <p className="text-muted-foreground">
-                {getBlockInstructions(currentBlock.type as BlockType)}
-              </p>
-            </div>
-          )}
-        </CardContent>
-      </Card>
 
-      {/* Complete Block Button */}
-      <Button
-        className={cn(
-          "w-full transition-all",
-          isCurrentBlockComplete && "bg-success hover:bg-success/90 animate-glow"
-        )}
-        size="lg"
-        onClick={handleBlockComplete}
-      >
-        {currentBlockIndex < totalBlocks - 1 ? (
-          isCurrentBlockComplete ? (
-            <span className="flex items-center gap-2">
-              <span className="text-lg">🎯</span> Block Complete - Next!
-            </span>
-          ) : (
-            'Complete Block'
-          )
-        ) : (
-          isCurrentBlockComplete ? (
-            <span className="flex items-center gap-2">
-              <span className="text-lg">🏆</span> Finish & Celebrate!
-            </span>
-          ) : (
-            'Finish & Reflect'
-          )
-        )}
-      </Button>
-
-      {/* Block Navigation */}
-      <div className="flex justify-center gap-2 mt-6">
-        {workoutData.blocks.map((block, index) => (
-          <button
-            key={block.id}
-            onClick={() => setCurrentBlockIndex(index)}
-            className={cn(
-              'w-2 h-2 rounded-full transition-colors',
-              index === currentBlockIndex
-                ? 'bg-primary'
-                : block.completed
-                  ? 'bg-success'
-                  : 'bg-secondary'
+          {/* Exercises */}
+          <div className="p-4">
+            {currentBlock.exercises.length > 0 ? (
+              <div className="space-y-5">
+                {currentBlock.exercises.map((exerciseInstance, index) => (
+                  <ExerciseBlock
+                    key={exerciseInstance.id}
+                    exerciseInstance={exerciseInstance}
+                    isLast={index === currentBlock.exercises.length - 1}
+                    userId={workoutData.userId}
+                  />
+                ))}
+              </div>
+            ) : (
+              <div className="py-8 text-center">
+                <p className="text-muted-foreground text-sm">{getBlockInstructions(currentBlock.type as BlockType)}</p>
+              </div>
             )}
-          />
-        ))}
+          </div>
+        </div>
+
+        {/* Complete Block CTA */}
+        <Button
+          className={cn(
+            'w-full transition-all text-base',
+            isCurrentBlockComplete
+              ? 'bg-gradient-to-r from-success to-[#00A844] shadow-glow-success text-white border-0'
+              : ''
+          )}
+          size="lg"
+          onClick={handleBlockComplete}
+        >
+          {currentBlockIndex < totalBlocks - 1
+            ? isCurrentBlockComplete
+              ? <span className="flex items-center gap-2">🎯 Block Done — Next!</span>
+              : 'Complete Block'
+            : isCurrentBlockComplete
+              ? <span className="flex items-center gap-2">🏆 Finish Workout!</span>
+              : 'Finish & Reflect'
+          }
+        </Button>
+
+        {/* Block dot navigation */}
+        <div className="flex justify-center gap-2 mt-5">
+          {workoutData.blocks.map((block, index) => (
+            <button
+              key={block.id}
+              onClick={() => setCurrentBlockIndex(index)}
+              className={cn(
+                'rounded-full transition-all duration-200',
+                index === currentBlockIndex
+                  ? 'w-6 h-2 bg-primary'
+                  : block.completed
+                    ? 'w-2 h-2 bg-success'
+                    : 'w-2 h-2 bg-secondary'
+              )}
+            />
+          ))}
+        </div>
       </div>
     </div>
   )
 }
 
-// Exercise block component
+// ============================================================================
+// Exercise Block
+// ============================================================================
+
 function ExerciseBlock({
   exerciseInstance,
   isLast,
+  userId,
 }: {
   exerciseInstance: {
     id: string
+    exerciseId: string
     exercise?: { name: string; cues: string[] }
     sets: SetInstance[]
     notes: string
   }
   isLast: boolean
+  userId?: string
 }) {
   const [expandedSet, setExpandedSet] = useState<number | null>(0)
   const [celebratingSet, setCelebratingSet] = useState<number | null>(null)
-  const [celebrationMessage, setCelebrationMessage] = useState<string>('')
+  const [celebrationMessage, setCelebrationMessage] = useState('')
+
+  // Fetch PR for this exercise
+  const [prWeight, setPrWeight] = useState<number | null>(null)
+  useEffect(() => {
+    if (!userId || !exerciseInstance.exerciseId) return
+    getBestLift(userId, exerciseInstance.exerciseId).then(record => {
+      if (record) setPrWeight(record.weight)
+    })
+  }, [userId, exerciseInstance.exerciseId])
 
   const completedSets = exerciseInstance.sets.filter(s => s.completed).length
   const totalSets = exerciseInstance.sets.length
-  const allSetsComplete = completedSets === totalSets
+  const allSetsComplete = completedSets === totalSets && totalSets > 0
 
   const handleSetComplete = async (set: SetInstance, data: Partial<SetInstance>) => {
     const currentIndex = exerciseInstance.sets.findIndex(s => s.id === set.id)
-
-    // Show celebration
     setCelebratingSet(currentIndex)
     setCelebrationMessage(getEncouragingMessage())
 
-    await db.setInstances.update(set.id, {
-      ...data,
-      completed: true,
-    })
+    await db.setInstances.update(set.id, { ...data, completed: true })
 
-    // Clear celebration after animation
-    setTimeout(() => {
-      setCelebratingSet(null)
-      setCelebrationMessage('')
-    }, 1500)
+    setTimeout(() => { setCelebratingSet(null); setCelebrationMessage('') }, 1500)
 
-    // Move to next set
     if (currentIndex < exerciseInstance.sets.length - 1) {
       setExpandedSet(currentIndex + 1)
     } else {
@@ -332,40 +314,42 @@ function ExerciseBlock({
   }
 
   return (
-    <div className={cn('pb-4 relative', !isLast && 'border-b border-border')}>
+    <div className={cn('relative', !isLast && 'pb-5 border-b border-border/30')}>
+      {/* Exercise header */}
       <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-2">
-          <h4 className="font-medium">{exerciseInstance.exercise?.name || 'Exercise'}</h4>
-          {allSetsComplete && (
-            <span className="text-success animate-bounce-in text-lg">✓</span>
-          )}
+        <div className="flex items-center gap-2 flex-1 min-w-0">
+          <h4 className="font-bold text-base truncate">{exerciseInstance.exercise?.name || 'Exercise'}</h4>
+          {allSetsComplete && <span className="text-success animate-bounce-in text-lg flex-shrink-0">✓</span>}
         </div>
-        <div className="flex items-center gap-2">
-          {/* Mini progress dots */}
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {/* Set progress dots */}
           <div className="flex gap-1">
             {exerciseInstance.sets.map((set, i) => (
               <div
                 key={i}
                 className={cn(
                   'w-2 h-2 rounded-full transition-all duration-300',
-                  set.completed
-                    ? 'bg-success scale-110'
-                    : 'bg-secondary',
+                  set.completed ? 'bg-success scale-110' : 'bg-secondary',
                   celebratingSet === i && 'animate-pulse-success'
                 )}
               />
             ))}
           </div>
-          <span className="text-xs text-muted-foreground ml-1">
-            {completedSets}/{totalSets}
-          </span>
+          <span className="text-xs font-mono text-muted-foreground">{completedSets}/{totalSets}</span>
         </div>
       </div>
 
-      {/* Celebration message */}
+      {/* PR indicator */}
+      {prWeight && (
+        <p className="text-xs text-accent-orange mb-2 font-semibold">
+          🏆 PR: {prWeight} lbs
+        </p>
+      )}
+
+      {/* Celebration toast */}
       {celebrationMessage && (
-        <div className="absolute top-0 right-0 animate-slide-up">
-          <span className="text-sm font-bold text-success bg-success/10 px-2 py-1 rounded-full">
+        <div className="absolute top-0 right-0 animate-slide-up z-10">
+          <span className="text-sm font-black text-success bg-success/15 border border-success/30 px-3 py-1 rounded-full">
             {celebrationMessage}
           </span>
         </div>
@@ -373,35 +357,40 @@ function ExerciseBlock({
 
       <div className="space-y-2">
         {exerciseInstance.sets.map((set, index) => (
-          <SetRow
+          <WorkoutSetRow
             key={set.id}
             set={set}
             setNumber={index + 1}
             isExpanded={expandedSet === index}
             onExpand={() => setExpandedSet(expandedSet === index ? null : index)}
-            onComplete={(data) => handleSetComplete(set, data)}
+            onComplete={data => handleSetComplete(set, data)}
             justCompleted={celebratingSet === index}
+            prWeight={prWeight}
           />
         ))}
       </div>
 
       {exerciseInstance.exercise?.cues && exerciseInstance.exercise.cues.length > 0 && (
-        <p className="text-xs text-muted-foreground mt-2">
-          Cues: {exerciseInstance.exercise.cues.join(' | ')}
+        <p className="text-xs text-muted-foreground mt-3 leading-relaxed">
+          💡 {exerciseInstance.exercise.cues.join(' · ')}
         </p>
       )}
     </div>
   )
 }
 
-// Individual set row
-function SetRow({
+// ============================================================================
+// Workout Set Row
+// ============================================================================
+
+function WorkoutSetRow({
   set,
   setNumber,
   isExpanded,
   onExpand,
   onComplete,
   justCompleted = false,
+  prWeight,
 }: {
   set: SetInstance
   setNumber: number
@@ -409,38 +398,43 @@ function SetRow({
   onExpand: () => void
   onComplete: (data: Partial<SetInstance>) => void
   justCompleted?: boolean
+  prWeight?: number | null
 }) {
   const [weight, setWeight] = useState(set.actualWeight ?? set.targetWeight ?? 0)
   const [reps, setReps] = useState(set.actualReps ?? set.targetReps ?? 0)
   const [rpe, setRpe] = useState(set.actualRPE ?? set.targetRPE ?? 7)
 
+  const isPRWeight = prWeight && weight > prWeight
+
   if (set.completed) {
     return (
       <div
         className={cn(
-          'flex items-center justify-between rounded-lg p-3 transition-all duration-300',
+          'flex items-center justify-between rounded-xl px-3 py-2.5 transition-all duration-300',
           justCompleted
-            ? 'bg-success/20 border border-success/30 animate-set-complete'
-            : 'bg-secondary/50'
+            ? 'bg-success/15 border border-success/30 animate-set-complete'
+            : 'bg-secondary/40 border border-transparent'
         )}
       >
-        <span className="text-sm text-muted-foreground">Set {setNumber}</span>
+        <span className="text-sm font-mono text-muted-foreground">Set {setNumber}</span>
         <div className="flex items-center gap-3 text-sm">
-          <span className={cn(justCompleted && 'font-semibold')}>{set.actualWeight} lbs</span>
-          <span className={cn(justCompleted && 'font-semibold')}>x {set.actualReps}</span>
-          <span className={cn('font-mono', getRPEColor(set.actualRPE || 0))}>
+          <span className={cn('font-bold', justCompleted && 'text-success')}>{set.actualWeight} lbs</span>
+          <span className={cn('font-bold', justCompleted && 'text-success')}>× {set.actualReps}</span>
+          <span className={cn('text-xs font-mono', getRPEColor(set.actualRPE || 0))}>
             @{set.actualRPE}
           </span>
           <div className={cn(
-            'w-6 h-6 rounded-full flex items-center justify-center',
+            'w-6 h-6 rounded-lg flex items-center justify-center',
             justCompleted ? 'bg-success text-white animate-bounce-in' : 'text-success'
           )}>
             {justCompleted ? (
-              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
-                <path className="animate-checkmark" d="M5 13l4 4L19 7" strokeLinecap="round" strokeLinejoin="round" />
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
+                <polyline className="animate-checkmark" points="20 6 9 17 4 12" />
               </svg>
             ) : (
-              <span>✓</span>
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
             )}
           </div>
         </div>
@@ -452,85 +446,93 @@ function SetRow({
     return (
       <button
         onClick={onExpand}
-        className="w-full flex items-center justify-between bg-card border border-border rounded-lg p-3 text-left hover:border-primary/50 transition-colors"
+        className="w-full flex items-center justify-between rounded-xl bg-secondary/30 border border-border/40 px-3 py-2.5 text-left hover:border-primary/40 hover:bg-secondary/50 transition-all duration-150"
       >
-        <span className="text-sm font-medium">Set {setNumber}</span>
+        <span className="text-sm font-semibold">Set {setNumber}</span>
         <div className="flex items-center gap-3 text-sm text-muted-foreground">
           <span>{set.targetWeight} lbs</span>
-          <span>x {set.targetReps}</span>
-          <span>@{set.targetRPE}</span>
+          <span>× {set.targetReps}</span>
+          <span className="text-xs">@{set.targetRPE}</span>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="text-muted-foreground/50">
+            <path d="m6 9 6 6 6-6" />
+          </svg>
         </div>
       </button>
     )
   }
 
   return (
-    <div className="bg-card border-2 border-primary rounded-lg p-4 space-y-4">
+    <div className="rounded-2xl border-2 border-primary/50 bg-primary/5 p-4 space-y-4 animate-slide-up">
       <div className="flex items-center justify-between">
-        <span className="font-medium">Set {setNumber}</span>
-        <span className="text-xs text-muted-foreground">
-          Target: {set.targetWeight} x {set.targetReps} @{set.targetRPE}
-        </span>
+        <span className="font-bold">Set {setNumber}</span>
+        {set.targetWeight || set.targetReps ? (
+          <span className="text-xs text-muted-foreground bg-secondary/50 px-2 py-1 rounded-lg">
+            Target: {set.targetWeight} × {set.targetReps} @{set.targetRPE}
+          </span>
+        ) : null}
       </div>
+
+      {isPRWeight && (
+        <div className="bg-accent-orange/10 border border-accent-orange/30 rounded-xl px-3 py-2 text-center">
+          <p className="text-xs font-black text-accent-orange animate-pr-flash">🏆 NEW PR WEIGHT!</p>
+        </div>
+      )}
 
       <div className="grid grid-cols-3 gap-3">
         <div>
-          <label className="text-xs text-muted-foreground block mb-1">Weight</label>
+          <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider block mb-1.5">Weight</label>
           <Input
             type="number"
             value={weight}
-            onChange={(e) => setWeight(Number(e.target.value))}
-            className="text-center"
+            onChange={e => setWeight(Number(e.target.value))}
+            className="text-center font-bold"
           />
         </div>
         <div>
-          <label className="text-xs text-muted-foreground block mb-1">Reps</label>
+          <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider block mb-1.5">Reps</label>
           <Input
             type="number"
             value={reps}
-            onChange={(e) => setReps(Number(e.target.value))}
-            className="text-center"
+            onChange={e => setReps(Number(e.target.value))}
+            className="text-center font-bold"
           />
         </div>
         <div>
-          <label className="text-xs text-muted-foreground block mb-1">RPE</label>
+          <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider block mb-1.5">RPE</label>
           <Input
             type="number"
             min={1}
             max={10}
             value={rpe}
-            onChange={(e) => setRpe(Number(e.target.value))}
-            className={cn('text-center', getRPEColor(rpe))}
+            onChange={e => setRpe(Number(e.target.value))}
+            className={cn('text-center font-bold', getRPEColor(rpe))}
           />
         </div>
       </div>
 
-      <p className="text-xs text-muted-foreground text-center">
-        {RPE_DESCRIPTIONS[rpe]}
-      </p>
+      <p className="text-xs text-muted-foreground text-center">{RPE_DESCRIPTIONS[rpe]}</p>
 
       <div className="flex gap-2">
-        <Button
-          variant="outline"
-          size="sm"
-          className="flex-1"
-          onClick={onExpand}
-        >
-          Cancel
-        </Button>
+        <Button variant="outline" size="sm" className="flex-1" onClick={onExpand}>Cancel</Button>
         <Button
           size="sm"
-          className="flex-1 bg-success hover:bg-success/90 text-white font-semibold"
+          className="flex-1 bg-gradient-to-r from-success to-[#00A844] text-white font-bold shadow-glow-success border-0"
           onClick={() => onComplete({ actualWeight: weight, actualReps: reps, actualRPE: rpe })}
         >
-          <span className="mr-1">✓</span> Log Set
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round">
+            <polyline points="20 6 9 17 4 12" />
+          </svg>
+          Log Set
         </Button>
       </div>
     </div>
   )
 }
 
-// Reflection form with celebration
+// ============================================================================
+// Reflection Form
+// ============================================================================
+
 function ReflectionForm({
   workoutId,
   workoutName,
@@ -541,31 +543,19 @@ function ReflectionForm({
   onComplete: () => void
 }) {
   const [reflection, setReflection] = useState({
-    energy: 7,
-    performance: 7,
-    sleepQuality: 7,
-    sleepHours: 7,
-    hydration: 7,
-    nutrition: 7,
-    stress: 5,
-    motivation: 7,
-    overallSatisfaction: 7,
-    winOfTheDay: '',
-    struggleOfTheDay: '',
-    freeformNotes: '',
-    painNotes: '',
+    energy: 7, performance: 7, sleepQuality: 7, sleepHours: 7,
+    hydration: 7, nutrition: 7, stress: 5, motivation: 7,
+    overallSatisfaction: 7, winOfTheDay: '', struggleOfTheDay: '',
+    freeformNotes: '', painNotes: '',
   })
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [showCelebration, setShowCelebration] = useState(false)
   const [celebrationData, setCelebrationData] = useState<{
-    newStreak: number
-    totalWorkouts: number
-    newAchievements: AchievementId[]
+    newStreak: number; totalWorkouts: number; newAchievements: AchievementId[]
   } | null>(null)
 
   const handleSubmit = async () => {
     setIsSubmitting(true)
-
     const reflectionData: WorkoutReflection = {
       id: generateId(),
       workoutId,
@@ -587,36 +577,22 @@ function ReflectionForm({
     }
 
     await db.workoutReflections.add(reflectionData)
-    await db.workouts.update(workoutId, {
-      status: 'completed',
-      completedAt: new Date(),
-    })
+    await db.workouts.update(workoutId, { status: 'completed', completedAt: new Date() })
 
-    // Get user and update streak/achievements
     const user = await getCurrentUser()
     if (user) {
-      // Update streak and check for streak/workout achievements
       const streakAchievements = await updateStreakOnWorkoutComplete(user.id)
-
-      // Check for time-based achievements
       const timeAchievements = await checkTimeBasedAchievements(user.id)
-
-      // Check for iron will achievement (low energy workout)
       const ironWillUnlocked = await checkIronWillAchievement(user.id, reflection.energy)
-
-      // Get updated user stats
       const updatedUser = await getCurrentUser()
-
-      const allNewAchievements = [
-        ...streakAchievements,
-        ...timeAchievements,
-        ...(ironWillUnlocked ? ['iron_will' as AchievementId] : []),
-      ]
-
       setCelebrationData({
         newStreak: updatedUser?.currentStreak ?? 1,
         totalWorkouts: updatedUser?.totalWorkoutsCompleted ?? 1,
-        newAchievements: allNewAchievements,
+        newAchievements: [
+          ...streakAchievements,
+          ...timeAchievements,
+          ...(ironWillUnlocked ? ['iron_will' as AchievementId] : []),
+        ],
       })
       setShowCelebration(true)
     } else {
@@ -639,104 +615,41 @@ function ReflectionForm({
   return (
     <div className="min-h-screen bg-background p-4 pb-8">
       <header className="mb-6">
-        <h1 className="text-2xl font-bold">Post-Workout Reflection</h1>
-        <p className="text-sm text-muted-foreground">
-          How did it go? Be honest—this data drives your programming.
-        </p>
+        <h1 className="text-2xl font-black">Post-Workout Reflection</h1>
+        <p className="text-sm text-muted-foreground mt-1">Be honest — this data drives your programming.</p>
       </header>
 
-      <div className="space-y-6">
+      <div className="space-y-4">
         <Card>
-          <CardHeader>
-            <CardTitle className="text-base">How Are You Feeling?</CardTitle>
-          </CardHeader>
+          <CardHeader><CardTitle className="text-base">How Are You Feeling?</CardTitle></CardHeader>
           <CardContent className="space-y-4">
-            <Slider
-              label="Energy Level"
-              value={reflection.energy}
-              onChange={(v) => setReflection((r) => ({ ...r, energy: v }))}
-            />
-            <Slider
-              label="Performance"
-              value={reflection.performance}
-              onChange={(v) => setReflection((r) => ({ ...r, performance: v }))}
-            />
-            <Slider
-              label="Overall Satisfaction"
-              value={reflection.overallSatisfaction}
-              onChange={(v) => setReflection((r) => ({ ...r, overallSatisfaction: v }))}
-            />
+            <Slider label="Energy Level" value={reflection.energy} onChange={v => setReflection(r => ({ ...r, energy: v }))} />
+            <Slider label="Performance" value={reflection.performance} onChange={v => setReflection(r => ({ ...r, performance: v }))} />
+            <Slider label="Overall Satisfaction" value={reflection.overallSatisfaction} onChange={v => setReflection(r => ({ ...r, overallSatisfaction: v }))} />
           </CardContent>
         </Card>
 
         <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Recovery Factors</CardTitle>
-          </CardHeader>
+          <CardHeader><CardTitle className="text-base">Recovery Factors</CardTitle></CardHeader>
           <CardContent className="space-y-4">
-            <Slider
-              label="Sleep Quality (last night)"
-              value={reflection.sleepQuality}
-              onChange={(v) => setReflection((r) => ({ ...r, sleepQuality: v }))}
-            />
-            <Slider
-              label="Sleep Hours"
-              min={4}
-              max={10}
-              value={reflection.sleepHours}
-              onChange={(v) => setReflection((r) => ({ ...r, sleepHours: v }))}
-              valueFormatter={(v) => `${v}h`}
-            />
-            <Slider
-              label="Hydration"
-              value={reflection.hydration}
-              onChange={(v) => setReflection((r) => ({ ...r, hydration: v }))}
-            />
-            <Slider
-              label="Nutrition"
-              value={reflection.nutrition}
-              onChange={(v) => setReflection((r) => ({ ...r, nutrition: v }))}
-            />
-            <Slider
-              label="Stress Level"
-              value={reflection.stress}
-              onChange={(v) => setReflection((r) => ({ ...r, stress: v }))}
-            />
+            <Slider label="Sleep Quality" value={reflection.sleepQuality} onChange={v => setReflection(r => ({ ...r, sleepQuality: v }))} />
+            <Slider label="Sleep Hours" min={4} max={10} value={reflection.sleepHours} onChange={v => setReflection(r => ({ ...r, sleepHours: v }))} valueFormatter={v => `${v}h`} />
+            <Slider label="Hydration" value={reflection.hydration} onChange={v => setReflection(r => ({ ...r, hydration: v }))} />
+            <Slider label="Nutrition" value={reflection.nutrition} onChange={v => setReflection(r => ({ ...r, nutrition: v }))} />
+            <Slider label="Stress Level" value={reflection.stress} onChange={v => setReflection(r => ({ ...r, stress: v }))} />
           </CardContent>
         </Card>
 
         <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Session Notes</CardTitle>
-          </CardHeader>
+          <CardHeader><CardTitle className="text-base">Session Notes</CardTitle></CardHeader>
           <CardContent className="space-y-4">
-            <Input
-              label="Win of the Day"
-              placeholder="What went well?"
-              value={reflection.winOfTheDay}
-              onChange={(e) => setReflection((r) => ({ ...r, winOfTheDay: e.target.value }))}
-            />
-            <Input
-              label="Challenge"
-              placeholder="What was hard?"
-              value={reflection.struggleOfTheDay}
-              onChange={(e) => setReflection((r) => ({ ...r, struggleOfTheDay: e.target.value }))}
-            />
-            <Input
-              label="Pain Notes"
-              placeholder="Any discomfort? Where?"
-              value={reflection.painNotes}
-              onChange={(e) => setReflection((r) => ({ ...r, painNotes: e.target.value }))}
-            />
+            <Input label="Win of the Day" placeholder="What went well?" value={reflection.winOfTheDay} onChange={e => setReflection(r => ({ ...r, winOfTheDay: e.target.value }))} />
+            <Input label="Challenge" placeholder="What was hard?" value={reflection.struggleOfTheDay} onChange={e => setReflection(r => ({ ...r, struggleOfTheDay: e.target.value }))} />
+            <Input label="Pain Notes" placeholder="Any discomfort? Where?" value={reflection.painNotes} onChange={e => setReflection(r => ({ ...r, painNotes: e.target.value }))} />
           </CardContent>
         </Card>
 
-        <Button
-          className="w-full"
-          size="lg"
-          onClick={handleSubmit}
-          loading={isSubmitting}
-        >
+        <Button className="w-full" size="lg" onClick={handleSubmit} loading={isSubmitting}>
           Complete Workout
         </Button>
       </div>
@@ -744,13 +657,12 @@ function ReflectionForm({
   )
 }
 
-// Celebration screen shown after completing workout
+// ============================================================================
+// Celebration Screen
+// ============================================================================
+
 function CelebrationScreen({
-  workoutName,
-  streak,
-  totalWorkouts,
-  newAchievements,
-  onContinue,
+  workoutName, streak, totalWorkouts, newAchievements, onContinue,
 }: {
   workoutName: string
   streak: number
@@ -759,98 +671,74 @@ function CelebrationScreen({
   onContinue: () => void
 }) {
   const [showAchievements, setShowAchievements] = useState(false)
-
   useEffect(() => {
-    // Delay showing achievements for animation effect
     if (newAchievements.length > 0) {
-      const timer = setTimeout(() => setShowAchievements(true), 800)
-      return () => clearTimeout(timer)
+      const t = setTimeout(() => setShowAchievements(true), 800)
+      return () => clearTimeout(t)
     }
   }, [newAchievements])
 
-  const streakMessage = getStreakMessage(streak)
   const isOnFire = streak >= 3
 
   return (
     <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6 text-center">
-      {/* Celebration Icon */}
-      <div className="mb-6 animate-bounce">
+      <div className="mb-6 animate-float">
         <span className="text-7xl">{isOnFire ? '🔥' : '✓'}</span>
       </div>
-
-      {/* Workout Complete Message */}
-      <h1 className="text-3xl font-black mb-2">FORGED</h1>
+      <h1 className="text-4xl font-black tracking-tight mb-1">FORGED</h1>
       <p className="text-muted-foreground mb-8">{workoutName} complete</p>
 
-      {/* Streak Display */}
-      <Card className={cn(
-        'w-full max-w-sm mb-6',
-        isOnFire && 'border-primary/50 bg-gradient-to-br from-primary/10 to-transparent'
+      <div className={cn(
+        'w-full max-w-sm mb-6 rounded-2xl border p-6',
+        isOnFire ? 'border-primary/40 bg-gradient-to-br from-primary/10 to-transparent shadow-glow' : 'border-border/50 bg-card'
       )}>
-        <CardContent className="pt-6 pb-6">
-          <div className="flex items-center justify-center gap-4">
-            <div className="text-center">
-              <div className={cn(
-                'text-6xl font-black font-mono',
-                isOnFire ? 'text-primary' : 'text-foreground'
-              )}>
-                {streak}
-              </div>
-              <p className="text-sm text-muted-foreground mt-1">day streak</p>
-            </div>
-          </div>
-          <p className="text-sm text-center mt-4 text-muted-foreground">
-            {streakMessage}
-          </p>
-        </CardContent>
-      </Card>
+        <div className={cn('text-6xl font-black font-mono', isOnFire ? 'text-primary' : 'text-foreground')}>
+          {streak}
+        </div>
+        <p className="text-sm text-muted-foreground mt-1">day streak</p>
+        <p className="text-sm text-muted-foreground mt-3">{getStreakMessage(streak)}</p>
+      </div>
 
-      {/* Stats */}
       <div className="flex gap-8 mb-8">
         <div className="text-center">
-          <p className="text-2xl font-bold font-mono">{totalWorkouts}</p>
+          <p className="text-2xl font-black font-mono">{totalWorkouts}</p>
           <p className="text-xs text-muted-foreground">total workouts</p>
         </div>
       </div>
 
-      {/* New Achievements */}
       {newAchievements.length > 0 && showAchievements && (
-        <div className="w-full max-w-sm mb-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-          <p className="text-sm font-medium mb-3 text-primary">New Achievement{newAchievements.length > 1 ? 's' : ''} Unlocked!</p>
+        <div className="w-full max-w-sm mb-8 animate-bounce-in">
+          <p className="text-xs font-bold text-primary uppercase tracking-widest mb-3">
+            🏅 Achievement{newAchievements.length > 1 ? 's' : ''} Unlocked!
+          </p>
           <div className="space-y-2">
-            {newAchievements.map((achievementId) => {
-              const achievement = ACHIEVEMENTS[achievementId]
-              if (!achievement) return null
+            {newAchievements.map(id => {
+              const a = ACHIEVEMENTS[id]
+              if (!a) return null
               return (
-                <Card key={achievementId} className="border-primary/30 bg-primary/5">
-                  <CardContent className="py-3 flex items-center gap-3">
-                    <span className="text-3xl">{achievement.icon}</span>
-                    <div className="text-left">
-                      <p className="font-medium">{achievement.name}</p>
-                      <p className="text-xs text-muted-foreground">{achievement.description}</p>
-                    </div>
-                  </CardContent>
-                </Card>
+                <div key={id} className="rounded-2xl border border-primary/30 bg-primary/5 p-3 flex items-center gap-3">
+                  <span className="text-3xl">{a.icon}</span>
+                  <div className="text-left">
+                    <p className="font-bold text-sm">{a.name}</p>
+                    <p className="text-xs text-muted-foreground">{a.description}</p>
+                  </div>
+                </div>
               )
             })}
           </div>
         </div>
       )}
 
-      {/* Motivational Quote */}
-      <p className="text-sm text-muted-foreground italic mb-8 max-w-xs">
-        {getMotivationalQuote()}
-      </p>
-
-      {/* Continue Button */}
-      <Button size="lg" onClick={onContinue} className="w-full max-w-sm">
-        Continue
-      </Button>
+      <p className="text-sm text-muted-foreground italic mb-8 max-w-xs">{getMotivationalQuote()}</p>
+      <Button size="lg" onClick={onContinue} className="w-full max-w-sm">Continue</Button>
     </div>
   )
 }
 
-// Summary view for completed workouts (viewing from history)
+// ============================================================================
+// Workout Summary (History View)
+// ============================================================================
+
 function WorkoutSummary({
   workout,
   onBack,
@@ -861,6 +749,7 @@ function WorkoutSummary({
     workoutType?: string
     completedAt?: Date | null
     totalDuration?: number
+    userId?: string
     blocks: Array<{
       id: string
       type: string
@@ -870,220 +759,162 @@ function WorkoutSummary({
         sets: SetInstance[]
       }>
     }>
-    reflection?: {
-      energy: number
-      performance: number
-      winOfTheDay: string
-    } | null
+    reflection?: { energy: number; performance: number; winOfTheDay: string } | null
   }
   onBack: () => void
 }) {
   const completedDate = workout.completedAt ? new Date(workout.completedAt) : null
 
-  // Fetch QuickLog entries if this is a quick_log workout
   const quickLogEntries = useLiveQuery(
     async () => {
       if (workout.workoutType !== 'quick_log') return null
-      return db.quickLogEntries
-        .where('workoutId')
-        .equals(workout.id)
-        .sortBy('order')
+      return db.quickLogEntries.where('workoutId').equals(workout.id).sortBy('order')
     },
     [workout.id, workout.workoutType]
   )
 
-  // Check if there are any exercises from blocks
   const hasBlockExercises = workout.blocks.some(block =>
     block.exercises.some(ex => ex.sets.some(s => s.completed))
   )
 
-  // Calculate total stats
-  const totalSets = workout.blocks.reduce((acc, block) => {
-    return acc + block.exercises.reduce((setAcc, ex) => {
-      return setAcc + ex.sets.filter(s => s.completed).length
-    }, 0)
-  }, 0) + (quickLogEntries?.reduce((acc, entry) => {
-    return acc + entry.sets.filter(s => s.completed).length
-  }, 0) || 0)
+  const totalSets =
+    workout.blocks.reduce(
+      (acc, block) => acc + block.exercises.reduce((s, ex) => s + ex.sets.filter(s => s.completed).length, 0),
+      0
+    ) +
+    (quickLogEntries?.reduce(
+      (acc, entry) => acc + entry.sets.filter(s => s.completed || (s.weight != null && s.reps != null)).length,
+      0
+    ) || 0)
 
   return (
     <div className="min-h-screen bg-background p-4 pb-8">
-      {/* Header */}
       <header className="flex items-center justify-between mb-6">
-        <button
-          onClick={onBack}
-          className="p-2 -ml-2 text-muted-foreground hover:text-foreground"
-        >
-          <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+        <button onClick={onBack} className="w-9 h-9 rounded-xl bg-secondary flex items-center justify-center text-muted-foreground">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+            <path d="m15 18-6-6 6-6" />
           </svg>
         </button>
         <div className="text-center flex-1">
-          <h1 className="text-xl font-bold">{workout.name}</h1>
-          <Badge variant="success" className="mt-1">Completed</Badge>
+          <h1 className="text-xl font-black">{workout.name}</h1>
+          <Badge variant="success" className="mt-1 text-xs">Completed</Badge>
         </div>
-        <div className="w-10" /> {/* Spacer */}
+        <div className="w-9" />
       </header>
 
-      {/* Date & Time Card */}
       {completedDate && (
         <Card className="mb-4">
           <CardContent className="py-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Completed</p>
-                <p className="font-medium">
-                  {completedDate.toLocaleDateString('en-US', {
-                    weekday: 'long',
-                    year: 'numeric',
-                    month: 'long',
-                    day: 'numeric',
-                  })}
+                <p className="text-xs text-muted-foreground">Completed</p>
+                <p className="font-bold text-sm mt-0.5">
+                  {completedDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
                 </p>
-                <p className="text-sm text-muted-foreground">
-                  {completedDate.toLocaleTimeString('en-US', {
-                    hour: 'numeric',
-                    minute: '2-digit',
-                  })}
+                <p className="text-xs text-muted-foreground">
+                  {completedDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
                 </p>
               </div>
-              {/* Stats */}
-              <div className="text-right">
-                {totalSets > 0 && (
-                  <div className="flex items-center gap-2 justify-end">
-                    <span className="text-2xl">💪</span>
-                    <div>
-                      <p className="text-lg font-bold text-primary">{totalSets}</p>
-                      <p className="text-xs text-muted-foreground">sets</p>
-                    </div>
-                  </div>
-                )}
-                {workout.totalDuration && workout.totalDuration > 0 && (
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {workout.totalDuration} min
-                  </p>
-                )}
-              </div>
+              {totalSets > 0 && (
+                <div className="text-right">
+                  <p className="text-3xl font-black text-primary">{totalSets}</p>
+                  <p className="text-xs text-muted-foreground">sets</p>
+                  {workout.totalDuration && workout.totalDuration > 0 && (
+                    <p className="text-xs text-muted-foreground">{workout.totalDuration} min</p>
+                  )}
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>
       )}
 
-      {/* Reflection Summary */}
       {workout.reflection && (
         <Card className="mb-4">
-          <CardHeader>
-            <CardTitle className="text-base">Session Reflection</CardTitle>
-          </CardHeader>
+          <CardHeader><CardTitle className="text-base">Session Reflection</CardTitle></CardHeader>
           <CardContent>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <p className="text-sm text-muted-foreground">Energy</p>
-                <p className="text-lg font-bold">{workout.reflection.energy}/10</p>
+                <p className="text-xs text-muted-foreground">Energy</p>
+                <p className="text-2xl font-black">{workout.reflection.energy}<span className="text-sm font-normal text-muted-foreground">/10</span></p>
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">Performance</p>
-                <p className="text-lg font-bold">{workout.reflection.performance}/10</p>
+                <p className="text-xs text-muted-foreground">Performance</p>
+                <p className="text-2xl font-black">{workout.reflection.performance}<span className="text-sm font-normal text-muted-foreground">/10</span></p>
               </div>
             </div>
             {workout.reflection.winOfTheDay && (
-              <div className="mt-3 pt-3 border-t border-border">
-                <p className="text-sm text-muted-foreground">Win of the Day</p>
-                <p className="text-sm">"{workout.reflection.winOfTheDay}"</p>
+              <div className="mt-3 pt-3 border-t border-border/30">
+                <p className="text-xs text-muted-foreground">Win of the Day</p>
+                <p className="text-sm mt-1">"{workout.reflection.winOfTheDay}"</p>
               </div>
             )}
           </CardContent>
         </Card>
       )}
 
-      {/* Exercise Summary - Programmed Workouts */}
       {hasBlockExercises && (
         <Card className="mb-4">
-          <CardHeader>
-            <CardTitle className="text-base">Exercises</CardTitle>
-          </CardHeader>
+          <CardHeader><CardTitle className="text-base">Exercises</CardTitle></CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {workout.blocks.map((block) => (
-                <div key={block.id}>
-                  {block.exercises.map((exerciseInstance) => {
-                    const completedSets = exerciseInstance.sets.filter(s => s.completed)
-                    if (completedSets.length === 0) return null
-
-                    return (
-                      <div key={exerciseInstance.id} className="mb-4 last:mb-0">
-                        <h4 className="font-medium mb-2">
-                          {exerciseInstance.exercise?.name || 'Exercise'}
-                        </h4>
-                        <div className="space-y-1">
-                          {completedSets.map((set, index) => (
-                            <div
-                              key={set.id}
-                              className="flex items-center justify-between text-sm bg-secondary/50 rounded px-3 py-2"
-                            >
-                              <span className="text-muted-foreground">Set {index + 1}</span>
-                              <div className="flex items-center gap-3">
-                                <span>{set.actualWeight || set.targetWeight} lbs</span>
-                                <span>x {set.actualReps || set.targetReps}</span>
-                                {(set.actualRPE || set.targetRPE) && (
-                                  <span className={cn('font-mono', getRPEColor(set.actualRPE || set.targetRPE || 0))}>
-                                    @{set.actualRPE || set.targetRPE}
-                                  </span>
-                                )}
-                              </div>
+              {workout.blocks.map(block =>
+                block.exercises.map(exerciseInstance => {
+                  const completedSets = exerciseInstance.sets.filter(s => s.completed)
+                  if (completedSets.length === 0) return null
+                  return (
+                    <div key={exerciseInstance.id} className="mb-4 last:mb-0">
+                      <h4 className="font-bold text-sm mb-2">{exerciseInstance.exercise?.name || 'Exercise'}</h4>
+                      <div className="space-y-1">
+                        {completedSets.map((set, index) => (
+                          <div key={set.id} className="flex items-center justify-between text-sm bg-secondary/40 rounded-xl px-3 py-2">
+                            <span className="text-xs text-muted-foreground font-mono">Set {index + 1}</span>
+                            <div className="flex items-center gap-3">
+                              <span className="font-bold">{set.actualWeight || set.targetWeight} lbs</span>
+                              <span className="text-muted-foreground">× {set.actualReps || set.targetReps}</span>
+                              {(set.actualRPE || set.targetRPE) && (
+                                <span className={cn('text-xs font-mono', getRPEColor(set.actualRPE || set.targetRPE || 0))}>
+                                  @{set.actualRPE || set.targetRPE}
+                                </span>
+                              )}
                             </div>
-                          ))}
-                        </div>
+                          </div>
+                        ))}
                       </div>
-                    )
-                  })}
-                </div>
-              ))}
+                    </div>
+                  )
+                })
+              )}
             </div>
           </CardContent>
         </Card>
       )}
 
-      {/* Exercise Summary - Quick Log Workouts */}
       {quickLogEntries && quickLogEntries.length > 0 && (
         <Card className="mb-4">
-          <CardHeader>
-            <CardTitle className="text-base">Exercises</CardTitle>
-          </CardHeader>
+          <CardHeader><CardTitle className="text-base">Exercises</CardTitle></CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {quickLogEntries.map((entry) => {
-                const completedSets = entry.sets.filter(s => s.completed)
-                if (completedSets.length === 0) return null
-
+              {quickLogEntries.map(entry => {
+                const loggedSets = entry.sets.filter(s => s.completed || (s.weight != null && s.reps != null))
+                if (loggedSets.length === 0) return null
                 return (
                   <div key={entry.id} className="mb-4 last:mb-0">
-                    <h4 className="font-medium mb-2">{entry.exerciseName}</h4>
+                    <h4 className="font-bold text-sm mb-2">{entry.exerciseName}</h4>
                     <div className="space-y-1">
-                      {completedSets.map((set, index) => (
-                        <div
-                          key={index}
-                          className="flex items-center justify-between text-sm bg-secondary/50 rounded px-3 py-2"
-                        >
-                          <span className="text-muted-foreground">Set {index + 1}</span>
+                      {loggedSets.map((set, index) => (
+                        <div key={index} className="flex items-center justify-between text-sm bg-secondary/40 rounded-xl px-3 py-2">
+                          <span className="text-xs text-muted-foreground font-mono">Set {index + 1}</span>
                           <div className="flex items-center gap-3">
-                            {set.weight && <span>{set.weight} lbs</span>}
-                            {set.reps && <span>x {set.reps}</span>}
+                            {set.weight && <span className="font-bold">{set.weight} lbs</span>}
+                            {set.reps && <span className="text-muted-foreground">× {set.reps}</span>}
                             {set.duration && <span>{set.duration}s</span>}
-                            {set.rpe && (
-                              <span className={cn('font-mono', getRPEColor(set.rpe))}>
-                                @{set.rpe}
-                              </span>
-                            )}
+                            {set.rpe && <span className={cn('text-xs font-mono', getRPEColor(set.rpe))}>@{set.rpe}</span>}
                           </div>
                         </div>
                       ))}
                     </div>
-                    {entry.notes && (
-                      <p className="text-xs text-muted-foreground mt-2 italic">
-                        {entry.notes}
-                      </p>
-                    )}
+                    {entry.notes && <p className="text-xs text-muted-foreground mt-2 italic">{entry.notes}</p>}
                   </div>
                 )
               })}
@@ -1092,53 +923,35 @@ function WorkoutSummary({
         </Card>
       )}
 
-      {/* No exercise data message */}
       {!hasBlockExercises && (!quickLogEntries || quickLogEntries.length === 0) && (
         <Card className="mb-4">
           <CardContent className="py-8 text-center">
-            <p className="text-muted-foreground">No exercise data recorded</p>
-            <p className="text-xs text-muted-foreground mt-1">
-              This workout may have been a cardio session or quick completion
-            </p>
+            <p className="text-muted-foreground text-sm">No exercise data recorded</p>
           </CardContent>
         </Card>
       )}
 
-      {/* Back Button */}
-      <div className="mt-6">
-        <Button variant="outline" className="w-full" onClick={onBack}>
-          Back to History
-        </Button>
-      </div>
+      <Button variant="outline" className="w-full mt-4" onClick={onBack}>Back to History</Button>
     </div>
   )
 }
 
-// Get random motivational quote
 function getMotivationalQuote(): string {
   const quotes = [
     "Every rep shapes who you become.",
     "The iron never lies.",
     "Discipline is choosing what you want most over what you want now.",
-    "You don't have to be extreme, just consistent.",
-    "The only bad workout is the one that didn't happen.",
     "Progress, not perfection.",
     "Trust the process.",
-    "Your body can do it. It's your mind you need to convince.",
-    "The pain you feel today is the strength you feel tomorrow.",
     "Champions are made when no one is watching.",
   ]
   return quotes[Math.floor(Math.random() * quotes.length)]
 }
 
-// Helper functions
 function getBlockInstructions(blockType: BlockType): string {
   switch (blockType) {
-    case 'warmup':
-      return 'Complete your warmup: foam rolling, dynamic stretches, and movement prep. Tap complete when ready.'
-    case 'cooldown':
-      return 'Cool down with static stretching and breathing. Take your time.'
-    default:
-      return 'Complete the exercises in this block, then tap complete.'
+    case 'warmup': return 'Complete your warmup: foam rolling, dynamic stretches, and movement prep.'
+    case 'cooldown': return 'Cool down with static stretching and breathing. Take your time.'
+    default: return 'Complete the exercises in this block, then tap complete.'
   }
 }
