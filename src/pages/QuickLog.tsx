@@ -304,7 +304,7 @@ export function QuickLog() {
         workoutName={workoutName}
         setWorkoutName={setWorkoutName}
         onSave={saveWorkout}
-        onCancel={() => { setWorkoutStarted(false); setMode('initial'); setSelectedTemplate(null); setEntries([]) }}
+        onCancel={() => navigate('/')}
         isSaving={isSaving}
         duration={getDuration()}
         weightUnit={user?.preferences.weightUnit || 'lbs'}
@@ -323,7 +323,7 @@ export function QuickLog() {
         workoutName={workoutName}
         setWorkoutName={setWorkoutName}
         onSave={saveWorkout}
-        onCancel={() => { setWorkoutStarted(false); setMode('select') }}
+        onCancel={() => navigate('/')}
         isSaving={isSaving}
         distanceUnit={user.preferences.weightUnit === 'lbs' ? 'miles' : 'km'}
       />
@@ -338,7 +338,7 @@ export function QuickLog() {
       workoutName={workoutName}
       setWorkoutName={setWorkoutName}
       onSave={saveWorkout}
-      onCancel={() => { setWorkoutStarted(false); setMode('select') }}
+      onCancel={() => navigate('/')}
       isSaving={isSaving}
       duration={getDuration()}
       weightUnit={user.preferences.weightUnit}
@@ -511,6 +511,7 @@ function WorkoutLogger({
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
   const [showCustomForm, setShowCustomForm] = useState(false)
+  const [showExitConfirm, setShowExitConfirm] = useState(false)
 
   const exerciseIds = useMemo(() => entries.map(e => e.exercise.id), [entries])
   const exerciseHistory = useExerciseHistory(userId, exerciseIds)
@@ -717,6 +718,39 @@ function WorkoutLogger({
 
   return (
     <div className="min-h-screen bg-background pb-32 safe-area-inset">
+      {/* Exit confirmation overlay */}
+      {showExitConfirm && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 backdrop-blur-sm p-4"
+          onClick={() => setShowExitConfirm(false)}
+        >
+          <div
+            className="w-full max-w-sm bg-card border border-border/50 rounded-3xl p-6 shadow-2xl animate-slide-up mb-4"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-full bg-destructive/15 flex items-center justify-center shrink-0">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="text-destructive">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                </svg>
+              </div>
+              <div>
+                <h3 className="text-base font-black text-foreground">Discard Workout?</h3>
+                <p className="text-xs text-muted-foreground mt-0.5">All progress will be lost.</p>
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <Button variant="outline" className="flex-1 font-bold" onClick={() => setShowExitConfirm(false)}>
+                Keep Going
+              </Button>
+              <Button variant="destructive" className="flex-1 font-bold" onClick={onCancel}>
+                Discard
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="sticky top-0 z-10 bg-background/95 backdrop-blur-xl border-b border-border/30 px-4 py-3">
         <div className="flex items-center justify-between gap-3">
@@ -830,7 +864,7 @@ function WorkoutLogger({
       {/* Bottom action bar */}
       <div className="fixed bottom-0 left-0 right-0 px-4 pb-6 pt-3 bg-gradient-to-t from-background via-background/95 to-transparent safe-area-bottom">
         <div className="flex gap-3 max-w-md mx-auto">
-          <Button variant="outline" className="flex-1" onClick={onCancel}>
+          <Button variant="outline" className="flex-1" onClick={() => setShowExitConfirm(true)}>
             Discard
           </Button>
           <Button
@@ -1086,10 +1120,10 @@ function QuickSetRow({
               updateSet(entryId, setIndex, { [field]: isNaN(val) ? null : val })
             }}
             className={cn(
-              'flex-1 h-10 rounded-xl text-center text-sm font-semibold transition-colors',
-              'bg-background/80 border border-border/20',
+              'flex-1 h-10 rounded-xl text-center text-sm font-bold transition-colors',
+              'bg-secondary/50 border border-border/40',
               'focus:border-primary/60 focus:ring-0 focus:outline-none',
-              'placeholder:text-muted-foreground/30',
+              'placeholder:text-muted-foreground/50',
               isLoggedOrComplete ? 'text-success' : 'text-foreground'
             )}
           />
@@ -1101,7 +1135,7 @@ function QuickSetRow({
         <input
           type="number"
           inputMode="numeric"
-          placeholder="RPE"
+          placeholder="–"
           min={1}
           max={10}
           value={set.rpe ?? ''}
@@ -1109,7 +1143,12 @@ function QuickSetRow({
             const val = parseFloat(e.target.value)
             updateSet(entryId, setIndex, { rpe: isNaN(val) ? null : val })
           }}
-          className="w-11 h-10 rounded-xl text-center text-xs font-semibold bg-background/80 border border-border/20 focus:border-primary/60 focus:outline-none placeholder:text-muted-foreground/30 text-muted-foreground"
+          className={cn(
+            'w-11 h-10 rounded-xl text-center text-sm font-bold bg-secondary/50 border focus:border-primary/60 focus:outline-none placeholder:text-muted-foreground/50',
+            set.rpe != null
+              ? 'border-border/60 text-foreground'
+              : 'border-border/40 text-muted-foreground'
+          )}
         />
       )}
 
@@ -1117,13 +1156,13 @@ function QuickSetRow({
       <button
         onClick={() => updateSet(entryId, setIndex, { completed: !set.completed })}
         className={cn(
-          'w-10 h-10 rounded-xl flex-shrink-0 flex items-center justify-center transition-all duration-200',
+          'w-10 h-10 rounded-xl flex-shrink-0 flex items-center justify-center transition-all duration-200 active:scale-90',
           isLoggedOrComplete
-            ? 'bg-success text-white'
-            : 'bg-secondary/60 border border-border/30 text-muted-foreground hover:border-success/50 hover:text-success'
+            ? 'bg-success text-white shadow-glow-success'
+            : 'bg-secondary border border-border/60 text-foreground/50 hover:border-success hover:text-success hover:bg-success/10'
         )}
       >
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
           <polyline points="20 6 9 17 4 12" />
         </svg>
       </button>
@@ -1168,6 +1207,7 @@ function CardioLogger({
 }) {
   const [durationMinutes, setDurationMinutes] = useState('')
   const [durationSeconds, setDurationSeconds] = useState('')
+  const [showExitConfirm, setShowExitConfirm] = useState(false)
 
   const cardioTypes: { value: CardioType; label: string; icon: string }[] = [
     { value: 'running', label: 'Run', icon: '🏃' },
@@ -1205,6 +1245,38 @@ function CardioLogger({
 
   return (
     <div className="min-h-screen bg-background p-4 pb-32 safe-area-inset">
+      {showExitConfirm && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 backdrop-blur-sm p-4"
+          onClick={() => setShowExitConfirm(false)}
+        >
+          <div
+            className="w-full max-w-sm bg-card border border-border/50 rounded-3xl p-6 shadow-2xl animate-slide-up mb-4"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-full bg-destructive/15 flex items-center justify-center shrink-0">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="text-destructive">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                </svg>
+              </div>
+              <div>
+                <h3 className="text-base font-black text-foreground">Discard Activity?</h3>
+                <p className="text-xs text-muted-foreground mt-0.5">All progress will be lost.</p>
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <Button variant="outline" className="flex-1 font-bold" onClick={() => setShowExitConfirm(false)}>
+                Keep Going
+              </Button>
+              <Button variant="destructive" className="flex-1 font-bold" onClick={onCancel}>
+                Discard
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <header className="mb-6">
         <input
           className="w-full text-2xl font-black bg-transparent border-none focus:outline-none text-foreground placeholder:text-muted-foreground/40"
@@ -1342,7 +1414,7 @@ function CardioLogger({
 
       <div className="fixed bottom-0 left-0 right-0 px-4 pb-6 pt-3 bg-gradient-to-t from-background via-background/95 to-transparent safe-area-bottom">
         <div className="flex gap-3 max-w-md mx-auto">
-          <Button variant="outline" className="flex-1" onClick={onCancel}>Discard</Button>
+          <Button variant="outline" className="flex-1" onClick={() => setShowExitConfirm(true)}>Discard</Button>
           <Button className="flex-1" onClick={onSave} disabled={isSaving} loading={isSaving}>
             Save Activity
           </Button>
