@@ -3,7 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { useNavigate } from 'react-router-dom'
 import { db, getCurrentUser, getNextAvailableWorkout, getMissedWorkouts, skipWorkout, getActivePhase, getRecentReflections, getUserAchievements, getTodaysCheckIn, getRecentCheckIns } from '@/db'
 import { Button, Card, CardContent, CardHeader, CardTitle, Badge, Progress } from '@/components/ui'
-import { formatDate, formatDuration, cn, getShortDayName } from '@/lib/utils'
+import { formatDate, formatDuration, cn, getShortDayName, getLocalDateString } from '@/lib/utils'
 import { PHASE_CONFIG, ACHIEVEMENTS } from '@/lib/constants'
 import type { WorkoutReflection, Workout, DailyCheckIn } from '@/lib/types'
 
@@ -99,8 +99,16 @@ export function Dashboard() {
   const greeting = getGreeting()
   const firstName = user.name.split(' ')[0]
   const weeklyStats = calculateWeeklyStats(thisWeekWorkouts || [], recentReflections || [])
-  const insight = getPersonalizedInsight(user, weeklyStats, recentReflections || [])
-  const currentStreak = user.currentStreak ?? 0
+
+  // Compute effective streak: if last workout wasn't today or yesterday, streak is broken
+  const todayStr = getLocalDateString()
+  const yesterdayDate = new Date(); yesterdayDate.setDate(yesterdayDate.getDate() - 1)
+  const yesterdayStr = getLocalDateString(yesterdayDate)
+  const lastWorkoutDate = user.lastWorkoutDate ?? ''
+  const isStreakActive = lastWorkoutDate === todayStr || lastWorkoutDate === yesterdayStr
+  const currentStreak = isStreakActive ? (user.currentStreak ?? 0) : 0
+
+  const insight = getPersonalizedInsight({ ...user, currentStreak }, weeklyStats, recentReflections || [])
 
   return (
     <div className="flex flex-col">
@@ -110,14 +118,18 @@ export function Dashboard() {
         <div className="absolute top-0 right-0 w-48 h-48 rounded-full bg-primary/15 blur-3xl pointer-events-none" />
         <div className="absolute bottom-0 left-0 w-32 h-32 rounded-full bg-[#7209B7]/10 blur-2xl pointer-events-none" />
 
-        <p className="text-sm text-muted-foreground relative z-10">{greeting}</p>
-        <h1 className="text-3xl font-black text-foreground mt-0.5 relative z-10">{firstName}</h1>
+        <p className="text-sm text-white/70 relative z-10">{greeting}</p>
+        <h1 className="text-3xl font-black text-white mt-0.5 relative z-10">{firstName}</h1>
 
         {/* Streak pill in header */}
         {currentStreak > 0 && (
-          <div className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary/15 border border-primary/30 relative z-10">
-            {currentStreak >= 3 && <span className="text-base animate-pulse">🔥</span>}
-            <span className="text-sm font-bold text-primary">{currentStreak} day streak</span>
+          <div className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/20 border border-white/30 relative z-10">
+            {currentStreak >= 3 ? (
+              <span className="text-base animate-pulse">🔥</span>
+            ) : (
+              <span className="text-base">⚡</span>
+            )}
+            <span className="text-sm font-bold text-white">{currentStreak} day streak</span>
           </div>
         )}
       </div>

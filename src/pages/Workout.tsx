@@ -29,6 +29,7 @@ export function Workout() {
   const navigate = useNavigate()
   const [currentBlockIndex, setCurrentBlockIndex] = useState(0)
   const [showReflection, setShowReflection] = useState(false)
+  const [showExitConfirm, setShowExitConfirm] = useState(false)
 
   const workoutData = useLiveQuery(
     async () => { if (!workoutId) return null; return getWorkoutWithDetails(workoutId) },
@@ -115,12 +116,43 @@ export function Workout() {
     }
   }
 
-  const handleExit = () => {
-    if (confirm('Exit workout? Your progress is saved.')) navigate('/')
-  }
+  const handleExit = () => setShowExitConfirm(true)
 
   return (
     <div className="min-h-screen bg-background pb-8">
+      {/* Exit confirmation overlay */}
+      {showExitConfirm && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 backdrop-blur-sm p-4"
+          onClick={() => setShowExitConfirm(false)}
+        >
+          <div
+            className="w-full max-w-sm bg-card border border-border/50 rounded-3xl p-6 shadow-2xl animate-slide-up mb-4"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-full bg-destructive/15 flex items-center justify-center shrink-0">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="text-destructive">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                </svg>
+              </div>
+              <div>
+                <h3 className="text-base font-black text-foreground">Leave Workout?</h3>
+                <p className="text-xs text-muted-foreground mt-0.5">Your progress is saved. Resume anytime.</p>
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <Button variant="outline" className="flex-1 font-bold" onClick={() => setShowExitConfirm(false)}>
+                Keep Going
+              </Button>
+              <Button variant="destructive" className="flex-1 font-bold" onClick={() => navigate('/')}>
+                Leave
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Sticky Header */}
       <div className="sticky top-0 z-20 bg-background/95 backdrop-blur-xl border-b border-border/30 px-4 py-3">
         <div className="flex items-center justify-between mb-3">
@@ -165,10 +197,13 @@ export function Workout() {
       {/* Sets crushed banner */}
       {totalSetsCompleted > 0 && (
         <div className="px-4 pt-3 animate-slide-up">
-          <div className="bg-primary/10 rounded-xl px-4 py-2 flex items-center gap-2">
+          <div className="bg-primary/15 border border-primary/25 rounded-xl px-4 py-2.5 flex items-center gap-2">
             <span className="text-lg">💪</span>
             <span className="text-sm font-bold text-primary">
               {totalSetsCompleted} set{totalSetsCompleted !== 1 ? 's' : ''} crushed!
+            </span>
+            <span className="ml-auto text-xs text-primary/70 font-medium">
+              {totalSets - totalSetsCompleted > 0 ? `${totalSets - totalSetsCompleted} to go` : 'All done!'}
             </span>
           </div>
         </div>
@@ -178,22 +213,27 @@ export function Workout() {
       <div className="p-4">
         <div className="rounded-2xl bg-card border border-border/50 shadow-card overflow-hidden mb-4">
           {/* Block header */}
-          <div className="px-4 pt-4 pb-3 border-b border-border/30">
+          <div className="px-4 pt-4 pb-3 border-b border-border/40 bg-secondary/20">
             <div className="flex items-center justify-between">
-              <div>
+              <div className="flex-1 min-w-0 mr-3">
                 <Badge
                   className={cn('mb-2 text-xs font-bold uppercase tracking-wider', BLOCK_CONFIG[currentBlock.type as BlockType]?.color)}
                   variant="outline"
                 >
                   {BLOCK_CONFIG[currentBlock.type as BlockType]?.label || currentBlock.type}
                 </Badge>
-                <h2 className="text-lg font-bold leading-tight">
+                <h2 className="text-base font-black text-foreground leading-tight">
                   {currentBlock.intent || BLOCK_CONFIG[currentBlock.type as BlockType]?.description}
                 </h2>
               </div>
-              <span className="text-sm font-mono text-muted-foreground bg-secondary px-2 py-1 rounded-lg">
-                ~{currentBlock.timeTarget}m
-              </span>
+              <div className="flex flex-col items-end gap-1 shrink-0">
+                <span className="text-xs font-bold text-muted-foreground bg-secondary px-2 py-1 rounded-lg">
+                  ~{currentBlock.timeTarget}m
+                </span>
+                <span className="text-[10px] font-semibold text-muted-foreground">
+                  {currentBlockSetsCompleted}/{currentBlockTotalSets} sets
+                </span>
+              </div>
             </div>
           </div>
 
@@ -446,14 +486,14 @@ function WorkoutSetRow({
     return (
       <button
         onClick={onExpand}
-        className="w-full flex items-center justify-between rounded-xl bg-secondary/30 border border-border/40 px-3 py-2.5 text-left hover:border-primary/40 hover:bg-secondary/50 transition-all duration-150"
+        className="w-full flex items-center justify-between rounded-xl bg-secondary/50 border border-border/60 px-3 py-2.5 text-left hover:border-primary/50 hover:bg-secondary/70 transition-all duration-150 active:scale-[0.98]"
       >
-        <span className="text-sm font-semibold">Set {setNumber}</span>
-        <div className="flex items-center gap-3 text-sm text-muted-foreground">
-          <span>{set.targetWeight} lbs</span>
-          <span>× {set.targetReps}</span>
-          <span className="text-xs">@{set.targetRPE}</span>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="text-muted-foreground/50">
+        <span className="text-sm font-bold text-foreground">Set {setNumber}</span>
+        <div className="flex items-center gap-3 text-sm">
+          <span className="font-semibold text-foreground/80">{set.targetWeight} lbs</span>
+          <span className="text-foreground/60">× {set.targetReps}</span>
+          <span className={cn('text-xs font-semibold', getRPEColor(set.targetRPE ?? 7))}>@{set.targetRPE}</span>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="text-muted-foreground">
             <path d="m6 9 6 6 6-6" />
           </svg>
         </div>
@@ -462,68 +502,80 @@ function WorkoutSetRow({
   }
 
   return (
-    <div className="rounded-2xl border-2 border-primary/50 bg-primary/5 p-4 space-y-4 animate-slide-up">
-      <div className="flex items-center justify-between">
-        <span className="font-bold">Set {setNumber}</span>
-        {set.targetWeight || set.targetReps ? (
-          <span className="text-xs text-muted-foreground bg-secondary/50 px-2 py-1 rounded-lg">
-            Target: {set.targetWeight} × {set.targetReps} @{set.targetRPE}
+    <div className="rounded-2xl border-2 border-primary/40 bg-card shadow-sm animate-slide-up overflow-hidden">
+      {/* Header row with target hint */}
+      <div className="flex items-center justify-between px-3 pt-3 pb-2 border-b border-border/30">
+        <span className="text-xs font-black text-foreground uppercase tracking-wide">Set {setNumber}</span>
+        {(set.targetWeight || set.targetReps) ? (
+          <span className="text-[10px] font-semibold text-muted-foreground bg-secondary/70 px-2 py-1 rounded-lg">
+            Target: {set.targetWeight} lbs × {set.targetReps} @{set.targetRPE}
           </span>
         ) : null}
       </div>
 
       {isPRWeight && (
-        <div className="bg-accent-orange/10 border border-accent-orange/30 rounded-xl px-3 py-2 text-center">
-          <p className="text-xs font-black text-accent-orange animate-pr-flash">🏆 NEW PR WEIGHT!</p>
+        <div className="bg-accent-orange/15 border-b border-accent-orange/30 px-3 py-2 text-center">
+          <p className="text-xs font-black text-accent-orange animate-pr-flash">🏆 NEW PR WEIGHT — Beat Your Record!</p>
         </div>
       )}
 
-      <div className="grid grid-cols-3 gap-3">
-        <div>
-          <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider block mb-1.5">Weight</label>
+      {/* Single input row: Weight | × Reps | @ RPE | ✓ Done */}
+      <div className="flex items-center gap-2 px-3 py-3">
+        {/* Weight */}
+        <div className="flex items-center gap-1 flex-1 min-w-0">
           <Input
             type="number"
             value={weight}
             onChange={e => setWeight(Number(e.target.value))}
-            className="text-center font-bold"
+            className="text-center font-black text-base h-11 px-1 min-w-0"
           />
+          <span className="text-[10px] font-semibold text-muted-foreground shrink-0">lbs</span>
         </div>
-        <div>
-          <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider block mb-1.5">Reps</label>
+
+        <span className="text-muted-foreground font-bold text-sm shrink-0">×</span>
+
+        {/* Reps */}
+        <div className="flex-1 min-w-0">
           <Input
             type="number"
             value={reps}
             onChange={e => setReps(Number(e.target.value))}
-            className="text-center font-bold"
+            className="text-center font-black text-base h-11 px-1 min-w-0 w-full"
           />
         </div>
-        <div>
-          <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider block mb-1.5">RPE</label>
+
+        <span className="text-muted-foreground font-bold text-sm shrink-0">@</span>
+
+        {/* RPE */}
+        <div className="w-14 shrink-0">
           <Input
             type="number"
             min={1}
             max={10}
             value={rpe}
             onChange={e => setRpe(Number(e.target.value))}
-            className={cn('text-center font-bold', getRPEColor(rpe))}
+            className={cn('text-center font-black text-base h-11 px-1', getRPEColor(rpe))}
           />
         </div>
-      </div>
 
-      <p className="text-xs text-muted-foreground text-center">{RPE_DESCRIPTIONS[rpe]}</p>
-
-      <div className="flex gap-2">
-        <Button variant="outline" size="sm" className="flex-1" onClick={onExpand}>Cancel</Button>
-        <Button
-          size="sm"
-          className="flex-1 bg-gradient-to-r from-success to-[#00A844] text-white font-bold shadow-glow-success border-0"
+        {/* Done checkmark button */}
+        <button
           onClick={() => onComplete({ actualWeight: weight, actualReps: reps, actualRPE: rpe })}
+          className="w-11 h-11 rounded-xl bg-success flex items-center justify-center text-white shrink-0 shadow-glow-success active:scale-90 transition-transform"
+          aria-label="Log set"
         >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round">
             <polyline points="20 6 9 17 4 12" />
           </svg>
-          Log Set
-        </Button>
+        </button>
+      </div>
+
+      {/* RPE label + cancel */}
+      <div className="flex items-center justify-between px-3 pb-3">
+        <p className="text-[10px] font-semibold text-muted-foreground">{RPE_DESCRIPTIONS[rpe]}</p>
+        <button onClick={onExpand} className="text-[10px] font-semibold text-muted-foreground hover:text-foreground transition-colors px-2 py-1">
+          Cancel
+        </button>
       </div>
     </div>
   )
