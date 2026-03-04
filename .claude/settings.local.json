@@ -28,7 +28,9 @@
       "Bash(git -C \"C:\\\\Users\\\\emano\\\\Strength-Builder\" add src/App.tsx src/components/Layout.tsx src/db/exercises.ts src/db/index.ts src/db/schema.ts src/index.css src/lib/constants.ts src/lib/types.ts src/lib/utils.ts src/main.tsx src/pages/Dashboard.tsx src/pages/Onboarding.tsx src/pages/Program.tsx src/pages/QuickLog.tsx src/pages/Settings.tsx src/pages/Workout.tsx src/pages/index.ts src/pages/DailyCheckIn.tsx src/pages/LiftRecords.tsx index.html vite.config.ts .github/workflows/deploy.yml public/404.html public/apple-touch-icon.png public/pwa-192x192.png public/pwa-512x512.png)",
       "Bash(git -C \"C:\\\\Users\\\\emano\\\\Strength-Builder\" commit -m \"$\\(cat <<''EOF''\nAdd PWA icons, bug fixes, and GitHub Pages deployment\n\n- Generate PWA icons \\(192x192, 512x512, apple-touch-icon\\) from favicon SVG\n- Fix formatDuration bug in QuickLog \\(was multiplying by 60 incorrectly\\)\n- Add missing tables to clearUserData and exportUserData\n- Add Daily Check-In and Lift Records pages\n- Configure Vite base path and BrowserRouter basename for GitHub Pages\n- Add GitHub Actions workflow for automatic deployment\n- Add 404.html SPA redirect for client-side routing\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\nEOF\n\\)\")",
       "Bash(git -C \"C:\\\\Users\\\\emano\\\\Strength-Builder\" push origin master)",
-      "Bash(gh run list:*)"
+      "Bash(gh run list:*)",
+      "Bash(git add:*)",
+      "Bash(git push:*)"
     ]
   }
 }
