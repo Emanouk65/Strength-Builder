@@ -999,7 +999,7 @@ function ExerciseCard({
       <div className="px-3 pb-3 pt-2.5 space-y-1.5">
         {/* Column headers */}
         <div className="flex items-center gap-1.5 px-2 pb-0.5">
-          <span className="w-6 text-[10px] text-center text-muted-foreground/40 font-medium uppercase tracking-wider">#</span>
+          <span className="w-5 text-[10px] text-center text-muted-foreground/40 font-medium uppercase tracking-wider">#</span>
           {fields.filter(f => f !== 'rpe').map((f, fi, arr) => (
             <React.Fragment key={f}>
               {fi === 1 && arr.length === 2 && <span className="text-transparent text-xs flex-shrink-0 select-none">×</span>}
@@ -1009,10 +1009,10 @@ function ExerciseCard({
             </React.Fragment>
           ))}
           {fields.includes('rpe') && (
-            <span className="w-11 text-[10px] text-center text-muted-foreground/40 font-medium uppercase tracking-wider">RPE</span>
+            <span className="w-9 text-[10px] text-center text-muted-foreground/40 font-medium uppercase tracking-wider">RPE</span>
           )}
-          <span className="w-10 text-[10px] text-center text-muted-foreground/40 font-medium uppercase tracking-wider">Done</span>
-          {entry.sets.length > 1 && <span className="w-6" />}
+          <span className="w-8" />
+          {entry.sets.length > 1 && <span className="w-5" />}
         </div>
 
         {entry.sets.map((set, setIndex) => (
@@ -1081,12 +1081,12 @@ function QuickSetRow({
 
   return (
     <div className={cn(
-      'flex items-center gap-1.5 rounded-xl px-2 py-1.5 transition-all duration-200',
+      'flex items-center gap-1.5 rounded-xl px-2 py-1 transition-all duration-200',
       isLoggedOrComplete ? 'bg-success/8' : ''
     )}>
       {/* Set number */}
       <span className={cn(
-        'w-6 text-center text-xs font-bold font-mono flex-shrink-0',
+        'w-5 text-center text-xs font-bold font-mono flex-shrink-0',
         isLoggedOrComplete ? 'text-success' : 'text-muted-foreground/50'
       )}>
         {set.setNumber}
@@ -1103,24 +1103,24 @@ function QuickSetRow({
             inputMode={field === 'weight' || field === 'distance' ? 'decimal' : 'numeric'}
             placeholder={
               field === 'weight' && suggestedWeight ? `${suggestedWeight}`
-              : field === 'reps' && repRange ? `${repRange[0]}`
-              : field === 'duration' ? 'sec'
-              : field === 'distance' ? 'ft'
-              : '–'
+                : field === 'reps' && repRange ? `${repRange[0]}`
+                  : field === 'duration' ? 'sec'
+                    : field === 'distance' ? 'ft'
+                      : '–'
             }
             value={
               field === 'weight' ? (set.weight ?? '')
-              : field === 'reps' ? (set.reps ?? '')
-              : field === 'duration' ? (set.duration ?? '')
-              : field === 'distance' ? (set.distance ?? '')
-              : ''
+                : field === 'reps' ? (set.reps ?? '')
+                  : field === 'duration' ? (set.duration ?? '')
+                    : field === 'distance' ? (set.distance ?? '')
+                      : ''
             }
             onChange={e => {
               const val = field === 'reps' ? parseInt(e.target.value) : parseFloat(e.target.value)
               updateSet(entryId, setIndex, { [field]: isNaN(val) ? null : val })
             }}
             className={cn(
-              'flex-1 h-10 rounded-xl text-center text-sm font-bold transition-colors',
+              'flex-1 h-8 rounded-lg text-center text-sm font-bold transition-colors',
               'bg-secondary/50 border border-border/40',
               'focus:border-primary/60 focus:ring-0 focus:outline-none',
               'placeholder:text-muted-foreground/50',
@@ -1144,7 +1144,7 @@ function QuickSetRow({
             updateSet(entryId, setIndex, { rpe: isNaN(val) ? null : val })
           }}
           className={cn(
-            'w-11 h-10 rounded-xl text-center text-sm font-bold bg-secondary/50 border focus:border-primary/60 focus:outline-none placeholder:text-muted-foreground/50',
+            'w-9 h-8 rounded-lg text-center text-sm font-bold bg-secondary/50 border focus:border-primary/60 focus:outline-none placeholder:text-muted-foreground/50',
             set.rpe != null
               ? 'border-border/60 text-foreground'
               : 'border-border/40 text-muted-foreground'
@@ -1156,13 +1156,13 @@ function QuickSetRow({
       <button
         onClick={() => updateSet(entryId, setIndex, { completed: !set.completed })}
         className={cn(
-          'w-10 h-10 rounded-xl flex-shrink-0 flex items-center justify-center transition-all duration-200 active:scale-90',
+          'w-8 h-8 rounded-lg flex-shrink-0 flex items-center justify-center transition-all duration-200 active:scale-90',
           isLoggedOrComplete
             ? 'bg-success text-white shadow-glow-success'
             : 'bg-secondary border border-border/60 text-foreground/50 hover:border-success hover:text-success hover:bg-success/10'
         )}
       >
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
           <polyline points="20 6 9 17 4 12" />
         </svg>
       </button>
@@ -1171,9 +1171,9 @@ function QuickSetRow({
       {canRemove && (
         <button
           onClick={() => removeSet(entryId, setIndex)}
-          className="w-6 h-6 rounded-lg flex-shrink-0 flex items-center justify-center text-muted-foreground/30 hover:text-destructive transition-colors"
+          className="w-5 h-5 rounded-md flex-shrink-0 flex items-center justify-center text-muted-foreground/30 hover:text-destructive transition-colors"
         >
-          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
             <path d="M18 6 6 18M6 6l12 12" />
           </svg>
         </button>
