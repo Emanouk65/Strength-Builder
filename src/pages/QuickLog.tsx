@@ -980,8 +980,7 @@ function ExerciseCard({
   const [collapsed, setCollapsed] = useState(false)
   useEffect(() => { if (allDone) setCollapsed(true) }, [allDone])
 
-  // Only show weight + reps fields (no RPE in the row per user request)
-  const rowFields = fields.filter(f => f !== 'rpe')
+  const rowFields = fields
 
   return (
     <div className={cn(
@@ -1044,11 +1043,16 @@ function ExerciseCard({
             {/* Column headers */}
             <div className="flex items-center gap-1.5 px-2 pb-0.5">
               <span className="w-5 text-[10px] text-center text-muted-foreground/40 font-medium uppercase tracking-wider">#</span>
-              {rowFields.map((f, fi, arr) => (
+              {rowFields.map((f, fi) => (
                 <React.Fragment key={f}>
-                  {fi === 1 && arr.length === 2 && <span className="text-transparent text-xs flex-shrink-0 select-none">×</span>}
-                  <span className="w-16 text-[10px] text-center text-muted-foreground/40 font-medium uppercase tracking-wider">
-                    {f === 'weight' ? weightUnit : f === 'reps' ? 'Reps' : f === 'duration' ? 'Sec' : 'Dist'}
+                  {fi > 0 && <span className="text-transparent text-xs flex-shrink-0 select-none">
+                    {f === 'rpe' ? '@' : '×'}
+                  </span>}
+                  <span className={cn(
+                    'text-[10px] text-center text-muted-foreground/40 font-medium uppercase tracking-wider',
+                    f === 'rpe' ? 'w-12' : 'w-16'
+                  )}>
+                    {f === 'weight' ? weightUnit : f === 'reps' ? 'Reps' : f === 'rpe' ? 'RPE' : f === 'duration' ? 'Sec' : 'Dist'}
                   </span>
                 </React.Fragment>
               ))}
@@ -1156,8 +1160,7 @@ function QuickSetRow({
   canRemove: boolean
 }) {
   const isDone = set.completed
-  // Only show weight + reps (no RPE in set row)
-  const rowFields = fields.filter(f => f !== 'rpe')
+  const rowFields = fields
 
   return (
     <div className={cn(
@@ -1172,35 +1175,42 @@ function QuickSetRow({
         {set.setNumber}
       </span>
 
-      {/* Weight × Reps */}
+      {/* Inputs */}
       {rowFields.map((field, fi) => (
         <React.Fragment key={field}>
-          {fi === 1 && rowFields.length === 2 && (
-            <span className="text-muted-foreground/60 text-sm font-bold flex-shrink-0 select-none">×</span>
+          {fi > 0 && (
+            <span className="text-muted-foreground/50 text-xs font-bold flex-shrink-0 select-none">
+              {field === 'rpe' ? '@' : '×'}
+            </span>
           )}
           <input
             type="number"
             inputMode={field === 'weight' || field === 'distance' ? 'decimal' : 'numeric'}
+            min={field === 'rpe' ? 1 : undefined}
+            max={field === 'rpe' ? 10 : undefined}
             placeholder={
               field === 'weight' && suggestedWeight ? `${suggestedWeight}`
                 : field === 'reps' && repRange ? `${repRange[0]}`
-                  : field === 'duration' ? 'sec'
-                    : field === 'distance' ? 'ft'
-                      : '–'
+                  : field === 'rpe' ? '1-10'
+                    : field === 'duration' ? 'sec'
+                      : field === 'distance' ? 'ft'
+                        : '–'
             }
             value={
               field === 'weight' ? (set.weight ?? '')
                 : field === 'reps' ? (set.reps ?? '')
-                  : field === 'duration' ? (set.duration ?? '')
-                    : field === 'distance' ? (set.distance ?? '')
-                      : ''
+                  : field === 'rpe' ? (set.rpe ?? '')
+                    : field === 'duration' ? (set.duration ?? '')
+                      : field === 'distance' ? (set.distance ?? '')
+                        : ''
             }
             onChange={e => {
-              const val = field === 'reps' ? parseInt(e.target.value) : parseFloat(e.target.value)
+              const val = field === 'reps' || field === 'rpe' ? parseInt(e.target.value) : parseFloat(e.target.value)
               updateSet(entryId, setIndex, { [field]: isNaN(val) ? null : val })
             }}
             className={cn(
-              'w-16 h-9 rounded-lg text-center text-sm font-bold transition-colors',
+              'h-9 rounded-lg text-center text-sm font-bold transition-colors',
+              field === 'rpe' ? 'w-12' : 'w-16',
               'bg-secondary/60 border border-border/50',
               'focus:border-primary/60 focus:ring-0 focus:outline-none',
               'placeholder:text-muted-foreground/40',
