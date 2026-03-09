@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { initializeDatabase, getCurrentUser } from '@/db'
+import { useRegisterSW } from 'virtual:pwa-register/react'
 
 // Pages
 import { Dashboard } from '@/pages/Dashboard'
@@ -28,6 +29,13 @@ function LoadingScreen() {
 
 function App() {
   const [isInitialized, setIsInitialized] = useState(false)
+
+  // Auto-reload when a new version is deployed
+  useRegisterSW({
+    onNeedRefresh() {
+      window.location.reload()
+    },
+  })
 
   const localUser = useLiveQuery(async () => {
     const result = await getCurrentUser()
