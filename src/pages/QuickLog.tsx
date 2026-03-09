@@ -657,88 +657,7 @@ function WorkoutLogger({
     )
   }
 
-  // Exercise search screen
-  if (showExerciseSearch) {
-    if (showCustomForm) {
-      return (
-        <CreateCustomExerciseForm
-          onSave={async exercise => { await addCustomExercise(exercise); addExercise(exercise) }}
-          onCancel={() => setShowCustomForm(false)}
-        />
-      )
-    }
-
-    return (
-      <div className="min-h-screen bg-background p-4 safe-area-inset">
-        <header className="mb-4 flex items-center justify-between">
-          <h2 className="text-xl font-bold text-foreground">Add Exercise</h2>
-          <button
-            onClick={() => { setShowExerciseSearch(false); setSearchQuery(''); setSelectedCategory(null) }}
-            className="w-9 h-9 rounded-xl bg-secondary flex items-center justify-center text-muted-foreground"
-          >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-              <path d="M18 6 6 18M6 6l12 12" />
-            </svg>
-          </button>
-        </header>
-
-        <div className="relative mb-4">
-          <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <circle cx="11" cy="11" r="8" /><path d="m21 21-4.35-4.35" />
-          </svg>
-          <input
-            className="w-full h-11 bg-input border border-border/50 rounded-xl pl-10 pr-4 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary/50 transition-colors"
-            placeholder="Search exercises…"
-            value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
-            autoFocus
-          />
-        </div>
-
-        <div className="flex gap-2 overflow-x-auto pb-2 mb-4 scrollbar-hide">
-          {muscleGroups.map(muscle => (
-            <button
-              key={muscle.id}
-              onClick={() => setSelectedCategory(selectedCategory === muscle.id ? null : muscle.id)}
-              className={cn(
-                'px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all duration-200',
-                selectedCategory === muscle.id
-                  ? 'bg-primary text-white shadow-glow-sm'
-                  : 'bg-secondary text-muted-foreground'
-              )}
-            >
-              {muscle.label}
-            </button>
-          ))}
-        </div>
-
-        <div className="space-y-1.5 max-h-[60vh] overflow-y-auto">
-          {filteredExercises.map(exercise => (
-            <button
-              key={exercise.id}
-              onClick={() => addExercise(exercise)}
-              className="w-full text-left p-3.5 rounded-xl bg-card border border-border/40 hover:border-primary/40 hover:bg-secondary/50 transition-all duration-150"
-            >
-              <p className="font-semibold text-sm text-foreground">
-                {exercise.name}
-                {exercise.isCustom && <span className="text-primary ml-1.5 text-xs font-normal">(custom)</span>}
-              </p>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                {exercise.primaryMuscles.join(', ')} · {exercise.category}
-              </p>
-            </button>
-          ))}
-        </div>
-
-        <button
-          onClick={() => setShowCustomForm(true)}
-          className="w-full mt-4 h-11 rounded-xl border border-dashed border-primary/40 text-sm font-semibold text-primary hover:bg-primary/5 transition-colors"
-        >
-          + Create Custom Exercise
-        </button>
-      </div>
-    )
-  }
+  const closeSearch = () => { setShowExerciseSearch(false); setSearchQuery(''); setSelectedCategory(null) }
 
   const completedSetsTotal = entries.reduce(
     (acc, e) => acc + e.sets.filter(s => s.completed || (s.weight != null && s.reps != null)).length,
@@ -747,6 +666,106 @@ function WorkoutLogger({
 
   return (
     <div className="min-h-screen bg-background pb-32 safe-area-inset">
+
+      {/* ── Exercise search bottom sheet ───────────────────────────────────── */}
+      {showExerciseSearch && (
+        <div className="fixed inset-0 z-40 flex flex-col justify-end">
+          {/* Backdrop */}
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={closeSearch} />
+
+          {/* Sheet */}
+          <div className="relative bg-card rounded-t-3xl shadow-2xl flex flex-col max-h-[85vh] animate-slide-up">
+            {/* Handle */}
+            <div className="flex justify-center pt-3 pb-1 flex-shrink-0">
+              <div className="w-10 h-1 rounded-full bg-border/60" />
+            </div>
+
+            {/* Header */}
+            <div className="flex items-center justify-between px-4 pb-3 flex-shrink-0">
+              <h2 className="text-lg font-black text-foreground">Add Exercise</h2>
+              <button
+                onClick={closeSearch}
+                className="w-8 h-8 rounded-xl bg-secondary flex items-center justify-center text-muted-foreground"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M18 6 6 18M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Search input */}
+            <div className="relative mx-4 mb-3 flex-shrink-0">
+              <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <circle cx="11" cy="11" r="8" /><path d="m21 21-4.35-4.35" />
+              </svg>
+              <input
+                className="w-full h-11 bg-input border border-border/50 rounded-xl pl-10 pr-4 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary/50 transition-colors"
+                placeholder="Search exercises…"
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+              />
+            </div>
+
+            {/* Muscle group filters */}
+            <div className="flex gap-2 overflow-x-auto px-4 pb-3 flex-shrink-0 scrollbar-hide">
+              {muscleGroups.map(muscle => (
+                <button
+                  key={muscle.id}
+                  onClick={() => setSelectedCategory(selectedCategory === muscle.id ? null : muscle.id)}
+                  className={cn(
+                    'px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all duration-200 flex-shrink-0',
+                    selectedCategory === muscle.id
+                      ? 'bg-primary text-white shadow-glow-sm'
+                      : 'bg-secondary text-muted-foreground'
+                  )}
+                >
+                  {muscle.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Exercise list — scrollable */}
+            <div className="overflow-y-auto flex-1 px-4 pb-4 space-y-1.5">
+              {filteredExercises.map(exercise => (
+                <button
+                  key={exercise.id}
+                  onClick={() => addExercise(exercise)}
+                  className="w-full text-left p-3.5 rounded-xl bg-background border border-border/40 hover:border-primary/40 hover:bg-secondary/30 active:scale-[0.98] transition-all duration-150"
+                >
+                  <p className="font-semibold text-sm text-foreground">
+                    {exercise.name}
+                    {exercise.isCustom && <span className="text-primary ml-1.5 text-xs font-normal">(custom)</span>}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    {exercise.primaryMuscles.join(', ')} · {exercise.category}
+                  </p>
+                </button>
+              ))}
+
+              <button
+                onClick={() => setShowCustomForm(true)}
+                className="w-full mt-1 h-11 rounded-xl border border-dashed border-primary/40 text-sm font-semibold text-primary hover:bg-primary/5 transition-colors"
+              >
+                + Create Custom Exercise
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Custom exercise form overlay ────────────────────────────────────── */}
+      {showCustomForm && (
+        <div className="fixed inset-0 z-50 flex flex-col justify-end">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setShowCustomForm(false)} />
+          <div className="relative bg-card rounded-t-3xl shadow-2xl max-h-[90vh] overflow-y-auto animate-slide-up">
+            <CreateCustomExerciseForm
+              onSave={async exercise => { await addCustomExercise(exercise); addExercise(exercise) }}
+              onCancel={() => setShowCustomForm(false)}
+            />
+          </div>
+        </div>
+      )}
+
       {/* Exit confirmation overlay */}
       {showExitConfirm && (
         <div
