@@ -966,7 +966,7 @@ function ExerciseCard({
   isLastEntry: boolean
   repRange?: [number, number]
 }) {
-  const completedCount = entry.sets.filter(s => s.completed || (s.weight != null && s.reps != null)).length
+  const completedCount = entry.sets.filter(s => s.completed).length
   const totalCount = entry.sets.length
   const allDone = completedCount === totalCount && totalCount > 0
   const prWeight = prData?.weight
@@ -1048,7 +1048,7 @@ function ExerciseCard({
                   </span>
                 </React.Fragment>
               ))}
-              <span className="w-8" />
+              <span className="w-9 text-[10px] text-center text-muted-foreground/40 font-medium uppercase tracking-wider flex-shrink-0">Done</span>
               {entry.sets.length > 1 && <span className="w-5" />}
             </div>
 
@@ -1151,19 +1151,19 @@ function QuickSetRow({
   removeSet: (entryId: string, setIndex: number) => void
   canRemove: boolean
 }) {
-  const isLoggedOrComplete = set.completed || (set.weight != null && set.reps != null)
+  const isDone = set.completed
   // Only show weight + reps (no RPE in set row)
   const rowFields = fields.filter(f => f !== 'rpe')
 
   return (
     <div className={cn(
       'flex items-center gap-1.5 rounded-xl px-2 py-1 transition-all duration-200',
-      isLoggedOrComplete ? 'bg-success/10 border border-success/20' : 'border border-transparent'
+      isDone ? 'bg-success/10 border border-success/20' : 'border border-transparent'
     )}>
       {/* Set number */}
       <span className={cn(
         'w-5 text-center text-xs font-bold font-mono flex-shrink-0',
-        isLoggedOrComplete ? 'text-success' : 'text-muted-foreground/60'
+        isDone ? 'text-success' : 'text-muted-foreground/60'
       )}>
         {set.setNumber}
       </span>
@@ -1200,7 +1200,7 @@ function QuickSetRow({
               'bg-secondary/60 border border-border/50',
               'focus:border-primary/60 focus:ring-0 focus:outline-none',
               'placeholder:text-muted-foreground/40',
-              isLoggedOrComplete ? 'text-success' : 'text-foreground'
+              isDone ? 'text-success' : 'text-foreground'
             )}
           />
         </React.Fragment>
@@ -1210,10 +1210,10 @@ function QuickSetRow({
       <button
         onClick={() => updateSet(entryId, setIndex, { completed: !set.completed })}
         className={cn(
-          'w-9 h-9 rounded-lg flex-shrink-0 flex items-center justify-center transition-all duration-150 active:scale-90',
-          isLoggedOrComplete
-            ? 'bg-success text-white shadow-glow-success'
-            : 'bg-secondary border-2 border-border/60 text-muted-foreground hover:border-success hover:text-success hover:bg-success/10'
+          'w-9 h-9 rounded-lg flex-shrink-0 flex items-center justify-center transition-all duration-150 active:scale-90 border-2',
+          isDone
+            ? 'bg-success border-success text-white'
+            : 'bg-transparent border-primary/50 text-primary hover:bg-primary/10 hover:border-primary'
         )}
         aria-label="Mark set done"
       >
