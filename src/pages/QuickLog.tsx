@@ -1048,7 +1048,7 @@ function ExerciseCard({
                   </span>
                 </React.Fragment>
               ))}
-              <span className="w-9 text-[10px] text-center text-muted-foreground/40 font-medium uppercase tracking-wider flex-shrink-0">Done</span>
+              <span className="text-[10px] text-center text-muted-foreground/60 font-bold uppercase tracking-wider flex-shrink-0 px-2">Done</span>
               {entry.sets.length > 1 && <span className="w-5" />}
             </div>
 
@@ -1210,16 +1210,17 @@ function QuickSetRow({
       <button
         onClick={() => updateSet(entryId, setIndex, { completed: !set.completed })}
         className={cn(
-          'w-9 h-9 rounded-lg flex-shrink-0 flex items-center justify-center transition-all duration-150 active:scale-90 border-2',
+          'flex-shrink-0 flex items-center justify-center gap-1 px-2 h-9 rounded-lg transition-all duration-150 active:scale-95 font-bold text-xs',
           isDone
-            ? 'bg-success border-success text-white'
-            : 'bg-transparent border-primary/50 text-primary hover:bg-primary/10 hover:border-primary'
+            ? 'bg-success text-white'
+            : 'bg-primary text-white'
         )}
         aria-label="Mark set done"
       >
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round">
           <polyline points="20 6 9 17 4 12" />
         </svg>
+        Done
       </button>
 
       {/* Remove set */}
