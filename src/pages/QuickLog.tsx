@@ -1043,7 +1043,7 @@ function ExerciseCard({
               {rowFields.map((f, fi, arr) => (
                 <React.Fragment key={f}>
                   {fi === 1 && arr.length === 2 && <span className="text-transparent text-xs flex-shrink-0 select-none">×</span>}
-                  <span className="flex-1 text-[10px] text-center text-muted-foreground/40 font-medium uppercase tracking-wider">
+                  <span className="w-16 text-[10px] text-center text-muted-foreground/40 font-medium uppercase tracking-wider">
                     {f === 'weight' ? weightUnit : f === 'reps' ? 'Reps' : f === 'duration' ? 'Sec' : 'Dist'}
                   </span>
                 </React.Fragment>
@@ -1196,7 +1196,7 @@ function QuickSetRow({
               updateSet(entryId, setIndex, { [field]: isNaN(val) ? null : val })
             }}
             className={cn(
-              'flex-1 h-9 rounded-lg text-center text-sm font-bold transition-colors',
+              'w-16 h-9 rounded-lg text-center text-sm font-bold transition-colors',
               'bg-secondary/60 border border-border/50',
               'focus:border-primary/60 focus:ring-0 focus:outline-none',
               'placeholder:text-muted-foreground/40',
