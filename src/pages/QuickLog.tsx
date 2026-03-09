@@ -56,6 +56,34 @@ export function QuickLog() {
     cardioStats?: { distance: number | null; duration: number; cardioType: string }
   } | null>(null)
 
+  // ── Restore in-progress session on mount ──────────────────────────────────
+  useEffect(() => {
+    const saved = localStorage.getItem('ql_session')
+    if (!saved) return
+    try {
+      const d = JSON.parse(saved)
+      if (d.workoutId && Array.isArray(d.entries) && d.entries.length > 0) {
+        setMode(d.mode ?? 'strength')
+        setWorkoutId(d.workoutId)
+        setWorkoutName(d.workoutName ?? '')
+        setEntries(d.entries)
+        setStartTime(d.startTime ? new Date(d.startTime) : new Date())
+        if (d.selectedTemplate) setSelectedTemplate(d.selectedTemplate)
+        setWorkoutStarted(true)
+      }
+    } catch { /* ignore corrupt data */ }
+  }, [])
+
+  // ── Auto-save session to localStorage on every change ─────────────────────
+  useEffect(() => {
+    if ((mode !== 'strength' && mode !== 'template') || !workoutId) return
+    localStorage.setItem('ql_session', JSON.stringify({
+      mode, workoutId, workoutName, startTime, entries, selectedTemplate,
+    }))
+  }, [entries, workoutId, workoutName, mode, startTime, selectedTemplate])
+
+  const clearSession = () => localStorage.removeItem('ql_session')
+
   const startTemplateWorkout = (templateType: QuickWorkoutType) => {
     if (!user) return
     const template = QUICK_WORKOUT_TEMPLATES[templateType]
@@ -125,6 +153,7 @@ export function QuickLog() {
 
   const saveWorkout = async () => {
     if (!user || !workoutId) return
+    clearSession()
     setIsSaving(true)
     try {
       const finalWorkoutName = workoutName || (mode === 'cardio' ? `${cardioData?.cardioType || 'Cardio'} Session` : 'Quick Log')
@@ -304,7 +333,7 @@ export function QuickLog() {
         workoutName={workoutName}
         setWorkoutName={setWorkoutName}
         onSave={saveWorkout}
-        onCancel={() => navigate('/')}
+        onCancel={() => { clearSession(); navigate('/') }}
         isSaving={isSaving}
         duration={getDuration()}
         weightUnit={user?.preferences.weightUnit || 'lbs'}
@@ -323,7 +352,7 @@ export function QuickLog() {
         workoutName={workoutName}
         setWorkoutName={setWorkoutName}
         onSave={saveWorkout}
-        onCancel={() => navigate('/')}
+        onCancel={() => { clearSession(); navigate('/') }}
         isSaving={isSaving}
         distanceUnit={user.preferences.weightUnit === 'lbs' ? 'miles' : 'km'}
       />
@@ -338,7 +367,7 @@ export function QuickLog() {
       workoutName={workoutName}
       setWorkoutName={setWorkoutName}
       onSave={saveWorkout}
-      onCancel={() => navigate('/')}
+      onCancel={() => { clearSession(); navigate('/') }}
       isSaving={isSaving}
       duration={getDuration()}
       weightUnit={user.preferences.weightUnit}
@@ -924,13 +953,23 @@ function ExerciseCard({
   const prWeight = prData?.weight
   const isBeatPR = prWeight && entry.sets.some(s => s.weight != null && s.weight > prWeight)
 
+  // Auto-collapse when all sets done; user can re-expand by tapping header
+  const [collapsed, setCollapsed] = useState(false)
+  useEffect(() => { if (allDone) setCollapsed(true) }, [allDone])
+
+  // Only show weight + reps fields (no RPE in the row per user request)
+  const rowFields = fields.filter(f => f !== 'rpe')
+
   return (
     <div className={cn(
       'rounded-2xl overflow-hidden border transition-all duration-200 bg-card',
-      allDone ? 'border-success/30' : isBeatPR ? 'border-[#FF6B35]/40' : 'border-border/40'
+      allDone ? 'border-success/40' : isBeatPR ? 'border-[#FF6B35]/40' : 'border-border/40'
     )}>
-      {/* Header */}
-      <div className="px-4 pt-3.5 pb-3 flex items-start justify-between gap-2">
+      {/* Header — tap to collapse/expand */}
+      <button
+        onClick={() => setCollapsed(c => !c)}
+        className="w-full px-4 pt-3.5 pb-3 flex items-center justify-between gap-2 text-left"
+      >
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <h3 className="font-bold text-sm text-foreground leading-snug truncate">{entry.exercise.name}</h3>
@@ -938,115 +977,132 @@ function ExerciseCard({
               <span className="text-[10px] font-bold text-[#FF6B35] bg-[#FF6B35]/10 px-1.5 py-0.5 rounded-full flex-shrink-0">🏆 PR!</span>
             )}
             {allDone && !isBeatPR && (
-              <span className="text-success text-sm flex-shrink-0">✓</span>
+              <span className="text-success text-base flex-shrink-0">✓</span>
             )}
           </div>
-
-          {/* Subtle last/PR hint line */}
           <p className="text-xs text-muted-foreground mt-0.5 leading-snug">
-            {lastData
-              ? <>{lastData.weight}{weightUnit} × {lastData.reps}</>
-              : <>{entry.exercise.primaryMuscles.slice(0, 2).join(', ')}</>
+            {allDone
+              ? <span className="text-success/80 font-semibold">{completedCount}/{totalCount} sets done</span>
+              : completedCount > 0
+                ? <span className="font-semibold text-primary">{completedCount}/{totalCount} sets</span>
+                : lastData
+                  ? <>{lastData.weight}{weightUnit} × {lastData.reps} last time</>
+                  : <>{entry.exercise.primaryMuscles.slice(0, 2).join(', ')}</>
             }
-            {prData && (
-              <span className="ml-2 text-[#FF6B35]/80">
-                · PR {prData.weight}{weightUnit}
-              </span>
+            {prData && !allDone && (
+              <span className="ml-2 text-[#FF6B35]/80">· PR {prData.weight}{weightUnit}</span>
             )}
           </p>
         </div>
 
-        {/* Action buttons */}
-        <div className="flex items-center gap-0.5 flex-shrink-0">
-          {onSwapExercise && (
+        <div className="flex items-center gap-1 flex-shrink-0">
+          {/* Mini set dots */}
+          <div className="flex gap-0.5 mr-1">
+            {entry.sets.map((s, i) => (
+              <div key={i} className={cn(
+                'w-1.5 h-1.5 rounded-full transition-colors',
+                (s.completed || (s.weight != null && s.reps != null)) ? 'bg-success' : 'bg-border'
+              )} />
+            ))}
+          </div>
+          {/* Chevron */}
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} className={cn('text-muted-foreground transition-transform duration-200', collapsed ? '' : 'rotate-180')}>
+            <path d="m6 9 6 6 6-6" />
+          </svg>
+        </div>
+      </button>
+
+      {!collapsed && (
+        <>
+          <div className="h-px bg-border/20 mx-4" />
+
+          {/* Set rows */}
+          <div className="px-3 pb-3 pt-2.5 space-y-1.5">
+            {/* Column headers */}
+            <div className="flex items-center gap-1.5 px-2 pb-0.5">
+              <span className="w-5 text-[10px] text-center text-muted-foreground/40 font-medium uppercase tracking-wider">#</span>
+              {rowFields.map((f, fi, arr) => (
+                <React.Fragment key={f}>
+                  {fi === 1 && arr.length === 2 && <span className="text-transparent text-xs flex-shrink-0 select-none">×</span>}
+                  <span className="flex-1 text-[10px] text-center text-muted-foreground/40 font-medium uppercase tracking-wider">
+                    {f === 'weight' ? weightUnit : f === 'reps' ? 'Reps' : f === 'duration' ? 'Sec' : 'Dist'}
+                  </span>
+                </React.Fragment>
+              ))}
+              <span className="w-8" />
+              {entry.sets.length > 1 && <span className="w-5" />}
+            </div>
+
+            {entry.sets.map((set, setIndex) => (
+              <QuickSetRow
+                key={setIndex}
+                set={set}
+                setIndex={setIndex}
+                entryId={entry.id}
+                fields={rowFields}
+                suggestedWeight={suggested ?? prData?.weight}
+                repRange={repRange}
+                updateSet={updateSet}
+                removeSet={removeSet}
+                canRemove={entry.sets.length > 1}
+              />
+            ))}
+
             <button
-              onClick={() => onSwapExercise(entry.id)}
-              className="w-8 h-8 rounded-xl flex items-center justify-center text-muted-foreground/60 hover:text-primary hover:bg-primary/10 transition-colors"
-              title="Swap exercise"
+              onClick={() => addSet(entry.id)}
+              className="w-full h-8 rounded-xl text-xs font-medium text-muted-foreground/60 hover:text-primary hover:bg-primary/5 transition-all duration-200 border border-dashed border-border/30 hover:border-primary/30 mt-1"
             >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-                <path d="M21 2v6h-6M3 12a9 9 0 0 1 15-6.7L21 8M3 22v-6h6M21 12a9 9 0 0 1-15 6.7L3 16" />
-              </svg>
+              + Add Set
             </button>
+          </div>
+
+          {/* Progress bar */}
+          {totalCount > 0 && (
+            <div className="h-1 bg-secondary/30">
+              <div
+                className={cn('h-full transition-all duration-500', allDone ? 'bg-success' : 'bg-primary')}
+                style={{ width: `${(completedCount / totalCount) * 100}%` }}
+              />
+            </div>
           )}
-          {!isInSuperset && !isLastEntry && (
-            <button
-              onClick={onLink}
-              className="w-8 h-8 rounded-xl flex items-center justify-center text-muted-foreground/60 hover:text-primary hover:bg-primary/10 transition-colors"
-              title="Create superset"
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-                <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-                <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-              </svg>
-            </button>
-          )}
+        </>
+      )}
+
+      {/* Action buttons (always visible) */}
+      <div className="flex items-center gap-0.5 px-3 py-1.5 border-t border-border/20">
+        {onSwapExercise && (
           <button
-            onClick={() => removeEntry(entry.id)}
-            className="w-8 h-8 rounded-xl flex items-center justify-center text-muted-foreground/60 hover:text-destructive hover:bg-destructive/10 transition-colors"
+            onClick={() => onSwapExercise(entry.id)}
+            className="flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-semibold text-muted-foreground/60 hover:text-primary hover:bg-primary/10 transition-colors"
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-              <path d="M18 6 6 18M6 6l12 12" />
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 2v6h-6M3 12a9 9 0 0 1 15-6.7L21 8M3 22v-6h6M21 12a9 9 0 0 1-15 6.7L3 16" />
             </svg>
+            Swap
           </button>
-        </div>
-      </div>
-
-      {/* Divider */}
-      <div className="h-px bg-border/20 mx-4" />
-
-      {/* Set rows */}
-      <div className="px-3 pb-3 pt-2.5 space-y-1.5">
-        {/* Column headers */}
-        <div className="flex items-center gap-1.5 px-2 pb-0.5">
-          <span className="w-5 text-[10px] text-center text-muted-foreground/40 font-medium uppercase tracking-wider">#</span>
-          {fields.filter(f => f !== 'rpe').map((f, fi, arr) => (
-            <React.Fragment key={f}>
-              {fi === 1 && arr.length === 2 && <span className="text-transparent text-xs flex-shrink-0 select-none">×</span>}
-              <span className="flex-1 text-[10px] text-center text-muted-foreground/40 font-medium uppercase tracking-wider">
-                {f === 'weight' ? weightUnit : f === 'reps' ? 'Reps' : f === 'duration' ? 'Sec' : 'Dist'}
-              </span>
-            </React.Fragment>
-          ))}
-          {fields.includes('rpe') && (
-            <span className="w-9 text-[10px] text-center text-muted-foreground/40 font-medium uppercase tracking-wider">RPE</span>
-          )}
-          <span className="w-8" />
-          {entry.sets.length > 1 && <span className="w-5" />}
-        </div>
-
-        {entry.sets.map((set, setIndex) => (
-          <QuickSetRow
-            key={setIndex}
-            set={set}
-            setIndex={setIndex}
-            entryId={entry.id}
-            fields={fields}
-            suggestedWeight={suggested ?? prData?.weight}
-            repRange={repRange}
-            updateSet={updateSet}
-            removeSet={removeSet}
-            canRemove={entry.sets.length > 1}
-          />
-        ))}
-
+        )}
+        {!isInSuperset && !isLastEntry && (
+          <button
+            onClick={onLink}
+            className="flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-semibold text-muted-foreground/60 hover:text-primary hover:bg-primary/10 transition-colors"
+          >
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+              <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+              <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+            </svg>
+            Superset
+          </button>
+        )}
         <button
-          onClick={() => addSet(entry.id)}
-          className="w-full h-8 rounded-xl text-xs font-medium text-muted-foreground/60 hover:text-primary hover:bg-primary/5 transition-all duration-200 border border-dashed border-border/30 hover:border-primary/30 mt-1"
+          onClick={() => removeEntry(entry.id)}
+          className="ml-auto flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-semibold text-muted-foreground/40 hover:text-destructive hover:bg-destructive/10 transition-colors"
         >
-          + Add Set
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+            <path d="M18 6 6 18M6 6l12 12" />
+          </svg>
+          Remove
         </button>
       </div>
-
-      {/* Progress bar */}
-      {totalCount > 0 && (
-        <div className="h-0.5 bg-secondary/30">
-          <div
-            className={cn('h-full transition-all duration-500', allDone ? 'bg-success' : 'bg-primary')}
-            style={{ width: `${(completedCount / totalCount) * 100}%` }}
-          />
-        </div>
-      )}
     </div>
   )
 }
@@ -1077,26 +1133,27 @@ function QuickSetRow({
   canRemove: boolean
 }) {
   const isLoggedOrComplete = set.completed || (set.weight != null && set.reps != null)
-  const nonRpeFields = fields.filter(f => f !== 'rpe')
+  // Only show weight + reps (no RPE in set row)
+  const rowFields = fields.filter(f => f !== 'rpe')
 
   return (
     <div className={cn(
       'flex items-center gap-1.5 rounded-xl px-2 py-1 transition-all duration-200',
-      isLoggedOrComplete ? 'bg-success/8' : ''
+      isLoggedOrComplete ? 'bg-success/10 border border-success/20' : 'border border-transparent'
     )}>
       {/* Set number */}
       <span className={cn(
         'w-5 text-center text-xs font-bold font-mono flex-shrink-0',
-        isLoggedOrComplete ? 'text-success' : 'text-muted-foreground/50'
+        isLoggedOrComplete ? 'text-success' : 'text-muted-foreground/60'
       )}>
         {set.setNumber}
       </span>
 
-      {/* Weight / reps / duration / distance fields with × between weight and reps */}
-      {nonRpeFields.map((field, fi) => (
+      {/* Weight × Reps */}
+      {rowFields.map((field, fi) => (
         <React.Fragment key={field}>
-          {fi === 1 && nonRpeFields.length === 2 && (
-            <span className="text-muted-foreground/40 text-xs flex-shrink-0 select-none">×</span>
+          {fi === 1 && rowFields.length === 2 && (
+            <span className="text-muted-foreground/60 text-sm font-bold flex-shrink-0 select-none">×</span>
           )}
           <input
             type="number"
@@ -1120,49 +1177,28 @@ function QuickSetRow({
               updateSet(entryId, setIndex, { [field]: isNaN(val) ? null : val })
             }}
             className={cn(
-              'flex-1 h-8 rounded-lg text-center text-sm font-bold transition-colors',
-              'bg-secondary/50 border border-border/40',
+              'flex-1 h-9 rounded-lg text-center text-sm font-bold transition-colors',
+              'bg-secondary/60 border border-border/50',
               'focus:border-primary/60 focus:ring-0 focus:outline-none',
-              'placeholder:text-muted-foreground/50',
+              'placeholder:text-muted-foreground/40',
               isLoggedOrComplete ? 'text-success' : 'text-foreground'
             )}
           />
         </React.Fragment>
       ))}
 
-      {/* RPE */}
-      {fields.includes('rpe') && (
-        <input
-          type="number"
-          inputMode="numeric"
-          placeholder="–"
-          min={1}
-          max={10}
-          value={set.rpe ?? ''}
-          onChange={e => {
-            const val = parseFloat(e.target.value)
-            updateSet(entryId, setIndex, { rpe: isNaN(val) ? null : val })
-          }}
-          className={cn(
-            'w-9 h-8 rounded-lg text-center text-sm font-bold bg-secondary/50 border focus:border-primary/60 focus:outline-none placeholder:text-muted-foreground/50',
-            set.rpe != null
-              ? 'border-border/60 text-foreground'
-              : 'border-border/40 text-muted-foreground'
-          )}
-        />
-      )}
-
       {/* Done button */}
       <button
         onClick={() => updateSet(entryId, setIndex, { completed: !set.completed })}
         className={cn(
-          'w-8 h-8 rounded-lg flex-shrink-0 flex items-center justify-center transition-all duration-200 active:scale-90',
+          'w-9 h-9 rounded-lg flex-shrink-0 flex items-center justify-center transition-all duration-150 active:scale-90',
           isLoggedOrComplete
             ? 'bg-success text-white shadow-glow-success'
-            : 'bg-secondary border border-border/60 text-foreground/50 hover:border-success hover:text-success hover:bg-success/10'
+            : 'bg-secondary border-2 border-border/60 text-muted-foreground hover:border-success hover:text-success hover:bg-success/10'
         )}
+        aria-label="Mark set done"
       >
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
           <polyline points="20 6 9 17 4 12" />
         </svg>
       </button>
