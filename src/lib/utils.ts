@@ -186,7 +186,8 @@ export function getExerciseLogFields(movementPattern: string, _category?: string
 }
 
 /**
- * Get suggested weight based on last workout performance
+ * Get suggested weight based on last workout performance.
+ * Progressive overload: always nudge up unless it was very hard (RPE 9-10).
  */
 export function getSuggestedWeight(
   lastWeight: number,
@@ -194,28 +195,27 @@ export function getSuggestedWeight(
   lastRPE: number | null,
   targetReps?: number
 ): number {
-  const rpe = lastRPE ?? 7
+  let suggestedWeight: number
 
-  let suggestedWeight = lastWeight
-
-  // Progressive overload logic based on RPE
-  if (rpe < 7) {
-    // Easy - suggest increasing weight
+  if (lastRPE === null) {
+    // No RPE logged — assume it was manageable, apply small progressive overload
     suggestedWeight = lastWeight + 5
-  } else if (rpe >= 7 && rpe <= 8) {
-    // Good working range - keep same weight
-    suggestedWeight = lastWeight
+  } else if (lastRPE <= 6) {
+    // Felt easy — increase more
+    suggestedWeight = lastWeight + 10
+  } else if (lastRPE <= 8) {
+    // Good working range — small increase
+    suggestedWeight = lastWeight + 5
   } else {
-    // Hard (RPE > 8) - keep same weight
+    // Very hard (RPE 9-10) — keep same weight
     suggestedWeight = lastWeight
   }
 
   // Adjust for rep range differences if target reps specified
   if (targetReps && targetReps !== lastReps && lastReps > 0) {
-    // Use percentage-based scaling: ~2.5% per rep difference
     const repDiff = targetReps - lastReps
     const adjustment = 1 - (repDiff * 0.025)
-    suggestedWeight = Math.round(suggestedWeight * adjustment / 5) * 5 // Round to nearest 5
+    suggestedWeight = Math.round(suggestedWeight * adjustment / 5) * 5
   }
 
   return Math.max(suggestedWeight, 0)

@@ -842,7 +842,9 @@ function WorkoutLogger({
                   const fields = getExerciseLogFields(entry.exercise.movementPattern, entry.exercise.category)
                   const lastData = exerciseHistory[entry.exercise.id]
                   const prData = exercisePRs[entry.exercise.id]
-                  const suggested = lastData ? getSuggestedWeight(lastData.weight, lastData.reps, lastData.rpe) : undefined
+                  const historySuggested = lastData ? getSuggestedWeight(lastData.weight, lastData.reps, lastData.rpe) : undefined
+                  const sessionMax = entry.sets.filter(s => s.completed && s.weight != null).reduce<number | null>((m, s) => m === null || s.weight! > m ? s.weight! : m, null)
+                  const suggested = sessionMax != null && (historySuggested == null || sessionMax > historySuggested) ? sessionMax : historySuggested
                   return (
                     <ExerciseCard
                       key={entry.id}
@@ -872,7 +874,9 @@ function WorkoutLogger({
           const fields = getExerciseLogFields(entry.exercise.movementPattern, entry.exercise.category)
           const lastData = exerciseHistory[entry.exercise.id]
           const prData = exercisePRs[entry.exercise.id]
-          const suggested = lastData ? getSuggestedWeight(lastData.weight, lastData.reps, lastData.rpe) : undefined
+          const historySuggested = lastData ? getSuggestedWeight(lastData.weight, lastData.reps, lastData.rpe) : undefined
+          const sessionMax = entry.sets.filter(s => s.completed && s.weight != null).reduce<number | null>((m, s) => m === null || s.weight! > m ? s.weight! : m, null)
+          const suggested = sessionMax != null && (historySuggested == null || sessionMax > historySuggested) ? sessionMax : historySuggested
           const idx = entries.findIndex(e => e.id === entry.id)
           return (
             <div key={entry.id} className={`stagger-${Math.min(gi + 1, 6)}`}>
