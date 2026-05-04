@@ -78,17 +78,22 @@ export function Dashboard() {
     [user]
   )
 
+  const thisWeekWorkoutIds = useMemo(
+    () => (thisWeekWorkouts || []).map(w => w.id).join(','),
+    [thisWeekWorkouts]
+  )
+
   const thisWeekSets = useLiveQuery(
     async () => {
-      if (!thisWeekWorkouts || thisWeekWorkouts.length === 0) return 0
-      const workoutIds = thisWeekWorkouts.map(w => w.id)
+      if (!thisWeekWorkoutIds) return 0
+      const workoutIds = thisWeekWorkoutIds.split(',')
       const entries = await db.quickLogEntries
         .where('workoutId')
         .anyOf(workoutIds)
         .toArray()
       return entries.reduce((acc, e) => acc + e.sets.filter(s => s.completed || (s.weight != null && s.reps != null)).length, 0)
     },
-    [thisWeekWorkouts]
+    [thisWeekWorkoutIds]
   )
 
   const todaysCheckIn = useLiveQuery(
