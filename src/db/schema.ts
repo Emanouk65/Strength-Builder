@@ -17,7 +17,7 @@ import type {
   QuickLogEntry,
   DailyCheckIn,
 } from '@/lib/types'
-import { getLocalDateString } from '@/lib/utils'
+import { getLocalDateString, calculateE1RM } from '@/lib/utils'
 
 // ============================================================================
 // Database Schema Definition
@@ -148,35 +148,53 @@ export async function getWorkoutWithDetails(workoutId: string) {
     .equals(workoutId)
     .sortBy('order')
 
-  const blocksWithExercises = await Promise.all(
-    blocks.map(async block => {
-      const instances = await db.exerciseInstances
-        .where('blockId')
-        .equals(block.id)
-        .sortBy('order')
+  // Batch fetch all instances for all blocks at once
+  const blockIds = blocks.map(b => b.id)
+  const allInstances = await db.exerciseInstances
+    .where('blockId')
+    .anyOf(blockIds)
+    .toArray()
 
-      const instancesWithSets = await Promise.all(
-        instances.map(async instance => {
-          const exercise = await db.exercises.get(instance.exerciseId)
-          const sets = await db.setInstances
-            .where('exerciseInstanceId')
-            .equals(instance.id)
-            .sortBy('setNumber')
+  // Batch fetch all exercises needed
+  const exerciseIds = [...new Set(allInstances.map(i => i.exerciseId))]
+  const exercises = await db.exercises
+    .where('id')
+    .anyOf(exerciseIds)
+    .toArray()
+  const exerciseMap = new Map(exercises.map(e => [e.id, e]))
 
-          return {
-            ...instance,
-            exercise,
-            sets,
-          }
-        })
-      )
+  // Batch fetch all sets for all instances
+  const instanceIds = allInstances.map(i => i.id)
+  const allSets = await db.setInstances
+    .where('exerciseInstanceId')
+    .anyOf(instanceIds)
+    .toArray()
 
-      return {
-        ...block,
-        exercises: instancesWithSets,
-      }
-    })
-  )
+  // Group sets by instance
+  const setsByInstance = new Map<string, typeof allSets>()
+  for (const set of allSets) {
+    const list = setsByInstance.get(set.exerciseInstanceId) || []
+    list.push(set)
+    setsByInstance.set(set.exerciseInstanceId, list)
+  }
+
+  // Assemble the result
+  const blocksWithExercises = blocks.map(block => {
+    const instances = allInstances
+      .filter(i => i.blockId === block.id)
+      .sort((a, b) => a.order - b.order)
+
+    const instancesWithSets = instances.map(instance => ({
+      ...instance,
+      exercise: exerciseMap.get(instance.exerciseId),
+      sets: (setsByInstance.get(instance.id) || []).sort((a, b) => a.setNumber - b.setNumber),
+    }))
+
+    return {
+      ...block,
+      exercises: instancesWithSets,
+    }
+  })
 
   const reflection = await db.workoutReflections
     .where('workoutId')
@@ -301,8 +319,7 @@ export async function checkAndRecordPR(
   reps: number,
   rpe: number | null
 ): Promise<boolean> {
-  // Epley formula for estimated 1RM
-  const estimated1RM = reps === 1 ? weight : weight * (1 + reps / 30)
+  const estimated1RM = calculateE1RM(weight, reps)
 
   const existingPR = await db.liftRecords
     .where({ userId, exerciseId, isPersonalRecord: true })
@@ -715,22 +732,29 @@ export async function skipWorkout(workoutId: string, reason?: string): Promise<v
 
 /**
  * Get last workout data for an exercise (for weight suggestions)
- * Looks at both quick log entries and programmed set instances
+ * Returns the heaviest completed set from the most recent workout containing this exercise.
+ * Looks at both quick log entries and programmed set instances.
  */
 export async function getLastWorkoutForExercise(
   userId: string,
   exerciseId: string
 ): Promise<{ weight: number; reps: number; rpe: number | null } | null> {
-  // Check quick log entries first (most recent)
+  // Get completed workouts sorted by completedAt descending (most recent first)
   const recentWorkouts = await db.workouts
     .where('userId')
     .equals(userId)
-    .filter(w => w.status === 'completed')
-    .reverse()
-    .sortBy('completedAt')
+    .filter(w => w.status === 'completed' && w.completedAt != null)
+    .toArray()
 
-  for (const workout of recentWorkouts.slice(0, 20)) {
-    // Check quick log entries
+  // Sort in JS since Dexie can't sort by a filtered field reliably
+  recentWorkouts.sort((a, b) => {
+    const aTime = a.completedAt ? new Date(a.completedAt).getTime() : 0
+    const bTime = b.completedAt ? new Date(b.completedAt).getTime() : 0
+    return bTime - aTime
+  })
+
+  for (const workout of recentWorkouts.slice(0, 30)) {
+    // Check quick log entries for this exercise
     const quickLogEntries = await db.quickLogEntries
       .where('workoutId')
       .equals(workout.id)
@@ -738,12 +762,14 @@ export async function getLastWorkoutForExercise(
       .toArray()
 
     for (const entry of quickLogEntries) {
-      const completedSet = entry.sets.find(s => s.completed && s.weight != null && s.reps != null)
-      if (completedSet) {
+      const completedSets = entry.sets.filter(s => s.completed && s.weight != null && s.reps != null)
+      if (completedSets.length > 0) {
+        // Return the heaviest set from this workout
+        const best = completedSets.reduce((max, s) => (s.weight! > max.weight! ? s : max))
         return {
-          weight: completedSet.weight!,
-          reps: completedSet.reps!,
-          rpe: completedSet.rpe,
+          weight: best.weight!,
+          reps: best.reps!,
+          rpe: best.rpe,
         }
       }
     }
@@ -754,27 +780,31 @@ export async function getLastWorkoutForExercise(
       .equals(workout.id)
       .toArray()
 
-    for (const block of blocks) {
-      const instances = await db.exerciseInstances
-        .where('blockId')
-        .equals(block.id)
-        .filter(i => i.exerciseId === exerciseId)
-        .toArray()
+    if (blocks.length === 0) continue
 
-      for (const instance of instances) {
-        const completedSet = await db.setInstances
-          .where('exerciseInstanceId')
-          .equals(instance.id)
-          .filter(s => s.completed && s.actualWeight != null && s.actualReps != null)
-          .first()
+    const blockIds = blocks.map(b => b.id)
+    const instances = await db.exerciseInstances
+      .where('blockId')
+      .anyOf(blockIds)
+      .filter(i => i.exerciseId === exerciseId)
+      .toArray()
 
-        if (completedSet) {
-          return {
-            weight: completedSet.actualWeight!,
-            reps: completedSet.actualReps!,
-            rpe: completedSet.actualRPE,
-          }
-        }
+    if (instances.length === 0) continue
+
+    const instanceIds = instances.map(i => i.id)
+    const completedSets = await db.setInstances
+      .where('exerciseInstanceId')
+      .anyOf(instanceIds)
+      .filter(s => s.completed && s.actualWeight != null && s.actualReps != null)
+      .toArray()
+
+    if (completedSets.length > 0) {
+      // Return the heaviest set
+      const best = completedSets.reduce((max, s) => (s.actualWeight! > max.actualWeight! ? s : max))
+      return {
+        weight: best.actualWeight!,
+        reps: best.actualReps!,
+        rpe: best.actualRPE,
       }
     }
   }
@@ -800,8 +830,7 @@ export async function addManualLiftRecord(
   weight: number,
   reps: number
 ): Promise<boolean> {
-  // Calculate estimated 1RM using Epley formula
-  const estimated1RM = reps === 1 ? weight : weight * (1 + reps / 30)
+  const estimated1RM = calculateE1RM(weight, reps)
 
   // Check if this beats the existing PR
   const existingPR = await db.liftRecords

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useNavigate } from 'react-router-dom'
 import { db, getCurrentUser, getNextAvailableWorkout, getMissedWorkouts, skipWorkout, getActivePhase, getRecentReflections, getUserAchievements, getTodaysCheckIn, getRecentCheckIns } from '@/db'
@@ -78,6 +78,19 @@ export function Dashboard() {
     [user]
   )
 
+  const thisWeekSets = useLiveQuery(
+    async () => {
+      if (!thisWeekWorkouts || thisWeekWorkouts.length === 0) return 0
+      const workoutIds = thisWeekWorkouts.map(w => w.id)
+      const entries = await db.quickLogEntries
+        .where('workoutId')
+        .anyOf(workoutIds)
+        .toArray()
+      return entries.reduce((acc, e) => acc + e.sets.filter(s => s.completed || (s.weight != null && s.reps != null)).length, 0)
+    },
+    [thisWeekWorkouts]
+  )
+
   const todaysCheckIn = useLiveQuery(
     async () => {
       if (!user) return null
@@ -98,17 +111,26 @@ export function Dashboard() {
 
   const greeting = getGreeting()
   const firstName = user.name.split(' ')[0]
-  const weeklyStats = calculateWeeklyStats(thisWeekWorkouts || [], recentReflections || [])
+
+  const weeklyStats = useMemo(
+    () => calculateWeeklyStats(thisWeekWorkouts || [], recentReflections || [], thisWeekSets ?? 0),
+    [thisWeekWorkouts, recentReflections, thisWeekSets]
+  )
 
   // Compute effective streak: if last workout wasn't today or yesterday, streak is broken
-  const todayStr = getLocalDateString()
-  const yesterdayDate = new Date(); yesterdayDate.setDate(yesterdayDate.getDate() - 1)
-  const yesterdayStr = getLocalDateString(yesterdayDate)
-  const lastWorkoutDate = user.lastWorkoutDate ?? ''
-  const isStreakActive = lastWorkoutDate === todayStr || lastWorkoutDate === yesterdayStr
-  const currentStreak = isStreakActive ? (user.currentStreak ?? 0) : 0
+  const currentStreak = useMemo(() => {
+    const todayStr = getLocalDateString()
+    const yesterdayDate = new Date(); yesterdayDate.setDate(yesterdayDate.getDate() - 1)
+    const yesterdayStr = getLocalDateString(yesterdayDate)
+    const lastWorkoutDate = user.lastWorkoutDate ?? ''
+    const isStreakActive = lastWorkoutDate === todayStr || lastWorkoutDate === yesterdayStr
+    return isStreakActive ? (user.currentStreak ?? 0) : 0
+  }, [user.lastWorkoutDate, user.currentStreak])
 
-  const insight = getPersonalizedInsight({ ...user, currentStreak }, weeklyStats, recentReflections || [])
+  const insight = useMemo(
+    () => getPersonalizedInsight({ ...user, currentStreak }, weeklyStats, recentReflections || []),
+    [user, currentStreak, weeklyStats, recentReflections]
+  )
 
   return (
     <div className="flex flex-col">
@@ -792,7 +814,8 @@ function getTrend(reflections: WorkoutReflection[], key: keyof WorkoutReflection
 
 function calculateWeeklyStats(
   workouts: Workout[],
-  reflections: WorkoutReflection[]
+  reflections: WorkoutReflection[],
+  totalSets: number
 ): { workoutsCompleted: number; totalMinutes: number; totalSets: number; avgPerformance: number } {
   const workoutsCompleted = workouts.length
   const totalMinutes = workouts.reduce((acc, w) => acc + (w.totalDuration || 0), 0)
@@ -810,7 +833,7 @@ function calculateWeeklyStats(
   return {
     workoutsCompleted,
     totalMinutes,
-    totalSets: workoutsCompleted * 15,
+    totalSets,
     avgPerformance,
   }
 }

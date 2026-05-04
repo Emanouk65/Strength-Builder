@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { getCurrentUser, getAllPRs, addManualLiftRecord } from '@/db'
 import { Button, Card, CardContent, CardHeader, CardTitle, Input, Badge } from '@/components/ui'
-import { cn, formatDate } from '@/lib/utils'
+import { cn, formatDate, calculateE1RM } from '@/lib/utils'
 import { MAJOR_LIFTS } from '@/lib/constants'
 import type { LiftRecord } from '@/lib/types'
 
@@ -27,14 +27,17 @@ export function LiftRecords() {
 
   const handleSavePR = async (liftId: string) => {
     if (!weight || !reps) return
+    const parsedWeight = parseFloat(weight)
+    const parsedReps = parseInt(reps)
+    if (isNaN(parsedWeight) || isNaN(parsedReps) || parsedWeight <= 0 || parsedReps <= 0) return
 
     setIsSaving(true)
     try {
       await addManualLiftRecord(
         user.id,
         liftId,
-        parseFloat(weight),
-        parseInt(reps)
+        parsedWeight,
+        parsedReps
       )
       setEditingLift(null)
       setWeight('')
@@ -50,7 +53,7 @@ export function LiftRecords() {
   }
 
   const calculateEstimated1RM = (weight: number, reps: number): number => {
-    return reps === 1 ? weight : Math.round(weight * (1 + reps / 30))
+    return calculateE1RM(weight, reps)
   }
 
   return (

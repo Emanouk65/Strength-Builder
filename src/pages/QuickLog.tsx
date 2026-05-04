@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import {
@@ -75,12 +75,16 @@ export function QuickLog() {
   }, [])
 
   // ── Auto-save session to localStorage on every change ─────────────────────
+  const isRestoringSession = useRef(true)
+  useEffect(() => { isRestoringSession.current = false }, [])
+
   useEffect(() => {
+    if (isRestoringSession.current) return
     if ((mode !== 'strength' && mode !== 'template') || !workoutId) return
     localStorage.setItem('ql_session', JSON.stringify({
-      mode, workoutId, workoutName, startTime, entries, selectedTemplate,
+      mode, workoutId, workoutName, startTime: startTime?.toISOString() ?? null, entries, selectedTemplate,
     }))
-  }, [entries, workoutId, workoutName, mode, startTime, selectedTemplate])
+  }, [JSON.stringify(entries), workoutId, workoutName, mode, startTime, selectedTemplate])
 
   const clearSession = () => localStorage.removeItem('ql_session')
 
@@ -297,14 +301,22 @@ export function QuickLog() {
         {/* Build your own */}
         <div className="border-t border-border/50 pt-5">
           <p className="text-xs font-semibold text-muted-foreground uppercase tracking-widest mb-3">Build Your Own</p>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-3 gap-3">
+            <button
+              onClick={() => navigate('/active-workout')}
+              className="p-5 rounded-2xl bg-card border border-border/60 hover:border-primary/50 transition-all duration-200 text-center press-feedback"
+            >
+              <span className="text-3xl block mb-2">📋</span>
+              <p className="font-semibold text-sm">Plan</p>
+              <p className="text-xs text-muted-foreground mt-0.5">Then start</p>
+            </button>
             <button
               onClick={() => { setMode('select'); startWorkout('strength') }}
               className="p-5 rounded-2xl bg-card border border-border/60 hover:border-primary/50 transition-all duration-200 text-center press-feedback"
             >
               <span className="text-3xl block mb-2">🏋️</span>
               <p className="font-semibold text-sm">Strength</p>
-              <p className="text-xs text-muted-foreground mt-0.5">Custom lifts</p>
+              <p className="text-xs text-muted-foreground mt-0.5">Quick log</p>
             </button>
             <button
               onClick={() => { setMode('select'); startWorkout('cardio') }}
@@ -312,7 +324,7 @@ export function QuickLog() {
             >
               <span className="text-3xl block mb-2">🏃</span>
               <p className="font-semibold text-sm">Cardio</p>
-              <p className="text-xs text-muted-foreground mt-0.5">Run, bike, swim…</p>
+              <p className="text-xs text-muted-foreground mt-0.5">Run, bike, swim</p>
             </button>
           </div>
         </div>
@@ -463,44 +475,48 @@ function SupersetWrapper({ children, onUnlink }: { children: React.ReactNode; on
 
 function useExerciseHistory(userId: string | undefined, exerciseIds: string[]) {
   const [history, setHistory] = useState<Record<string, { weight: number; reps: number; rpe: number | null }>>({})
+  const exerciseKey = exerciseIds.join(',')
 
   useEffect(() => {
     if (!userId || exerciseIds.length === 0) return
+    let cancelled = false
     const fetchHistory = async () => {
       const results: Record<string, { weight: number; reps: number; rpe: number | null }> = {}
       for (const exerciseId of exerciseIds) {
-        if (history[exerciseId]) continue
         const data = await getLastWorkoutForExercise(userId, exerciseId)
         if (data) results[exerciseId] = data
       }
-      if (Object.keys(results).length > 0) {
-        setHistory(prev => ({ ...prev, ...results }))
+      if (!cancelled) {
+        setHistory(results)
       }
     }
     fetchHistory()
-  }, [userId, exerciseIds.join(',')])
+    return () => { cancelled = true }
+  }, [userId, exerciseKey])
 
   return history
 }
 
 function useExercisePRs(userId: string | undefined, exerciseIds: string[]) {
   const [prs, setPRs] = useState<Record<string, { weight: number; reps: number }>>({})
+  const exerciseKey = exerciseIds.join(',')
 
   useEffect(() => {
     if (!userId || exerciseIds.length === 0) return
+    let cancelled = false
     const fetchPRs = async () => {
       const results: Record<string, { weight: number; reps: number }> = {}
       for (const exerciseId of exerciseIds) {
-        if (prs[exerciseId]) continue
         const record: LiftRecord | undefined = await getBestLift(userId, exerciseId)
         if (record) results[exerciseId] = { weight: record.weight, reps: record.reps }
       }
-      if (Object.keys(results).length > 0) {
-        setPRs(prev => ({ ...prev, ...results }))
+      if (!cancelled) {
+        setPRs(results)
       }
     }
     fetchPRs()
-  }, [userId, exerciseIds.join(',')])
+    return () => { cancelled = true }
+  }, [userId, exerciseKey])
 
   return prs
 }
