@@ -61,40 +61,35 @@ export function Dashboard() {
     [user]
   )
 
-  const thisWeekWorkouts = useLiveQuery(
+  const thisWeekData = useLiveQuery(
     async () => {
-      if (!user) return []
+      if (!user) return { workouts: [] as Workout[], totalSets: 0 }
       const today = new Date()
       const dayOfWeek = today.getDay()
       const startOfWeek = new Date(today)
       startOfWeek.setDate(today.getDate() - dayOfWeek)
       startOfWeek.setHours(0, 0, 0, 0)
-      return db.workouts
+      const workouts = await db.workouts
         .where('status')
         .equals('completed')
         .filter((w) => Boolean(w.completedAt && new Date(w.completedAt) >= startOfWeek))
         .toArray()
+      let totalSets = 0
+      if (workouts.length > 0) {
+        const workoutIds = workouts.map(w => w.id)
+        const entries = await db.quickLogEntries
+          .where('workoutId')
+          .anyOf(workoutIds)
+          .toArray()
+        totalSets = entries.reduce((acc, e) => acc + e.sets.filter(s => s.completed || (s.weight != null && s.reps != null)).length, 0)
+      }
+      return { workouts, totalSets }
     },
     [user]
   )
 
-  const thisWeekWorkoutIds = useMemo(
-    () => (thisWeekWorkouts || []).map(w => w.id).join(','),
-    [thisWeekWorkouts]
-  )
-
-  const thisWeekSets = useLiveQuery(
-    async () => {
-      if (!thisWeekWorkoutIds) return 0
-      const workoutIds = thisWeekWorkoutIds.split(',')
-      const entries = await db.quickLogEntries
-        .where('workoutId')
-        .anyOf(workoutIds)
-        .toArray()
-      return entries.reduce((acc, e) => acc + e.sets.filter(s => s.completed || (s.weight != null && s.reps != null)).length, 0)
-    },
-    [thisWeekWorkoutIds]
-  )
+  const thisWeekWorkouts = thisWeekData?.workouts
+  const thisWeekSets = thisWeekData?.totalSets ?? 0
 
   const todaysCheckIn = useLiveQuery(
     async () => {
@@ -112,30 +107,30 @@ export function Dashboard() {
     [user]
   )
 
-  if (!user) return null
-
-  const greeting = getGreeting()
-  const firstName = user.name.split(' ')[0]
-
   const weeklyStats = useMemo(
-    () => calculateWeeklyStats(thisWeekWorkouts || [], recentReflections || [], thisWeekSets ?? 0),
+    () => calculateWeeklyStats(thisWeekWorkouts || [], recentReflections || [], thisWeekSets),
     [thisWeekWorkouts, recentReflections, thisWeekSets]
   )
 
-  // Compute effective streak: if last workout wasn't today or yesterday, streak is broken
   const currentStreak = useMemo(() => {
+    if (!user) return 0
     const todayStr = getLocalDateString()
     const yesterdayDate = new Date(); yesterdayDate.setDate(yesterdayDate.getDate() - 1)
     const yesterdayStr = getLocalDateString(yesterdayDate)
     const lastWorkoutDate = user.lastWorkoutDate ?? ''
     const isStreakActive = lastWorkoutDate === todayStr || lastWorkoutDate === yesterdayStr
     return isStreakActive ? (user.currentStreak ?? 0) : 0
-  }, [user.lastWorkoutDate, user.currentStreak])
+  }, [user?.lastWorkoutDate, user?.currentStreak])
 
   const insight = useMemo(
-    () => getPersonalizedInsight({ ...user, currentStreak }, weeklyStats, recentReflections || []),
+    () => user ? getPersonalizedInsight({ ...user, currentStreak }, weeklyStats, recentReflections || []) : '',
     [user, currentStreak, weeklyStats, recentReflections]
   )
+
+  if (!user) return null
+
+  const greeting = getGreeting()
+  const firstName = user.name.split(' ')[0]
 
   return (
     <div className="flex flex-col">
