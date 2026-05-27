@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useLayoutEffect, useState } from 'react'
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useLiveQuery } from 'dexie-react-hooks'
@@ -22,6 +22,17 @@ import { Layout } from '@/components/Layout'
 
 function AnimatedRoutes() {
   const location = useLocation()
+
+  // Reset scroll to top on every route change. AnimatePresence with mode="wait"
+  // unmounts the previous page and mounts the new one, but window scroll
+  // position persists across that swap unless we manually reset it. We do this
+  // both with a layout effect (instant, before paint) and an onAnimationStart
+  // callback (covers cases where the layout effect timing misses on slow devices).
+  useLayoutEffect(() => {
+    // Use 'instant' so the user doesn't see the page mid-scroll.
+    window.scrollTo({ top: 0, left: 0, behavior: 'instant' as ScrollBehavior })
+  }, [location.pathname])
+
   return (
     <AnimatePresence mode="wait">
       <motion.div
@@ -30,6 +41,7 @@ function AnimatedRoutes() {
         animate={pageMotion.animate}
         exit={pageMotion.exit}
         transition={pageMotion.transition}
+        onAnimationStart={() => window.scrollTo({ top: 0, left: 0 })}
         className="min-h-screen bg-background"
       >
         <Routes location={location} key={location.pathname}>

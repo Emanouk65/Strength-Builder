@@ -1,9 +1,10 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
+import { motion, AnimatePresence } from 'framer-motion'
 import { getCurrentUser, getAllPRs, addManualLiftRecord } from '@/db'
-import { Button, Card, CardContent, CardHeader, CardTitle, Input, Badge } from '@/components/ui'
-import { cn, formatDate, calculateE1RM } from '@/lib/utils'
+import { Button } from '@/components/ui'
+import { formatDate, calculateE1RM, cn } from '@/lib/utils'
 import { MAJOR_LIFTS } from '@/lib/constants'
 import type { LiftRecord } from '@/lib/types'
 
@@ -11,10 +12,7 @@ export function LiftRecords() {
   const navigate = useNavigate()
   const user = useLiveQuery(() => getCurrentUser())
   const prs = useLiveQuery(
-    async () => {
-      if (!user) return []
-      return getAllPRs(user.id)
-    },
+    async () => (user ? getAllPRs(user.id) : []),
     [user]
   )
 
@@ -25,190 +23,224 @@ export function LiftRecords() {
 
   if (!user) return null
 
-  const handleSavePR = async (liftId: string) => {
-    if (!weight || !reps) return
+  const handleStartEdit = (liftId: string, currentPR?: LiftRecord) => {
+    setEditingLift(liftId)
+    setWeight(currentPR ? currentPR.weight.toString() : '')
+    setReps(currentPR ? currentPR.reps.toString() : '')
+  }
+
+  const handleCancel = () => {
+    setEditingLift(null)
+    setWeight('')
+    setReps('')
+  }
+
+  const handleSave = async (liftId: string) => {
     const parsedWeight = parseFloat(weight)
     const parsedReps = parseInt(reps)
-    if (isNaN(parsedWeight) || isNaN(parsedReps) || parsedWeight <= 0 || parsedReps <= 0) return
+    if (!Number.isFinite(parsedWeight) || !Number.isFinite(parsedReps) || parsedWeight <= 0 || parsedReps <= 0) return
 
     setIsSaving(true)
     try {
-      await addManualLiftRecord(
-        user.id,
-        liftId,
-        parsedWeight,
-        parsedReps
-      )
-      setEditingLift(null)
-      setWeight('')
-      setReps('')
+      await addManualLiftRecord(user.id, liftId, parsedWeight, parsedReps)
+      handleCancel()
     } catch (error) {
       console.error('Failed to save PR:', error)
     }
     setIsSaving(false)
   }
 
-  const getPRForLift = (liftId: string): LiftRecord | undefined => {
-    return prs?.find(pr => pr.exerciseId === liftId)
-  }
-
-  const calculateEstimated1RM = (weight: number, reps: number): number => {
-    return calculateE1RM(weight, reps)
-  }
+  const prByLift = new Map<string, LiftRecord>()
+  ;(prs ?? []).forEach(pr => prByLift.set(pr.exerciseId, pr))
 
   return (
-    <div className="min-h-screen bg-background p-4 pb-8">
-      <header className="mb-6">
-        <div className="flex items-center gap-4">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => navigate(-1)}
-            className="h-8 w-8 p-0"
-          >
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-            </svg>
-          </Button>
-          <div>
-            <h1 className="text-2xl font-bold">Lift Records</h1>
-            <p className="text-sm text-muted-foreground">Track your personal records</p>
-          </div>
+    <div className="min-h-screen bg-background pb-24">
+      <header className="px-5 pt-12 pb-5 flex items-start gap-3">
+        <button
+          onClick={() => navigate(-1)}
+          className="h-9 w-9 flex items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors -ml-1"
+          aria-label="Back"
+        >
+          <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+            <path d="M15 18l-6-6 6-6" />
+          </svg>
+        </button>
+        <div>
+          <p className="text-[10px] uppercase tracking-widest text-muted-foreground">Personal records</p>
+          <h1 className="text-2xl font-bold tracking-tight mt-1">Lifts</h1>
         </div>
       </header>
 
-      <div className="space-y-4">
+      <div className="px-5 space-y-2.5">
         {MAJOR_LIFTS.map((lift) => {
-          const pr = getPRForLift(lift.id)
+          const pr = prByLift.get(lift.id)
           const isEditing = editingLift === lift.id
+          const previewE1RM = weight && reps
+            ? calculateE1RM(parseFloat(weight) || 0, parseInt(reps) || 0)
+            : null
 
           return (
-            <Card key={lift.id} className={cn(isEditing && 'border-primary')}>
-              <CardHeader className="pb-2">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <span className="text-2xl">{lift.icon}</span>
-                    <CardTitle className="text-base">{lift.name}</CardTitle>
-                  </div>
-                  {pr && !isEditing && (
-                    <Badge variant="outline" className="font-mono">
-                      {pr.estimated1RM} {user.preferences.weightUnit} e1RM
-                    </Badge>
-                  )}
-                </div>
-              </CardHeader>
-              <CardContent>
-                {isEditing ? (
-                  <div className="space-y-4">
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="text-xs text-muted-foreground uppercase tracking-wider block mb-2">
-                          Weight ({user.preferences.weightUnit})
-                        </label>
-                        <Input
-                          type="number"
-                          placeholder="225"
-                          value={weight}
-                          onChange={(e) => setWeight(e.target.value)}
-                          className="h-12"
-                          autoFocus
-                        />
-                      </div>
-                      <div>
-                        <label className="text-xs text-muted-foreground uppercase tracking-wider block mb-2">
-                          Reps
-                        </label>
-                        <Input
-                          type="number"
-                          placeholder="5"
-                          value={reps}
-                          onChange={(e) => setReps(e.target.value)}
-                          className="h-12"
-                        />
-                      </div>
-                    </div>
-
-                    {weight && reps && (
-                      <div className="p-3 rounded-lg bg-primary/10 border border-primary/20">
-                        <p className="text-sm text-muted-foreground">
-                          Estimated 1RM:{' '}
-                          <span className="text-primary font-bold">
-                            {calculateEstimated1RM(parseFloat(weight), parseInt(reps))} {user.preferences.weightUnit}
-                          </span>
-                        </p>
-                      </div>
-                    )}
-
-                    <div className="flex gap-3">
-                      <Button
-                        variant="outline"
-                        className="flex-1"
-                        onClick={() => {
-                          setEditingLift(null)
-                          setWeight('')
-                          setReps('')
-                        }}
-                      >
-                        Cancel
-                      </Button>
-                      <Button
-                        className="flex-1"
-                        onClick={() => handleSavePR(lift.id)}
-                        disabled={!weight || !reps || isSaving}
-                        loading={isSaving}
-                      >
-                        Save
-                      </Button>
-                    </div>
-                  </div>
-                ) : (
-                  <div>
+            <motion.div
+              layout
+              key={lift.id}
+              transition={{ layout: { duration: 0.22, ease: [0.4, 0, 0.2, 1] } }}
+              className={cn(
+                'rounded-2xl bg-card border overflow-hidden',
+                isEditing ? 'border-foreground/40' : 'border-border/40'
+              )}
+            >
+              {/* Summary row */}
+              <button
+                onClick={() => isEditing ? handleCancel() : handleStartEdit(lift.id, pr)}
+                className="w-full flex items-center justify-between gap-3 px-4 py-3.5 text-left hover:bg-secondary/30 active:bg-secondary/50 transition-colors"
+              >
+                <div className="flex items-center gap-3 min-w-0 flex-1">
+                  <span className="text-2xl shrink-0">{lift.icon}</span>
+                  <div className="min-w-0">
+                    <p className="font-semibold text-foreground truncate">{lift.name}</p>
                     {pr ? (
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="text-2xl font-bold font-mono">
-                            {pr.weight} × {pr.reps}
-                          </p>
-                          <p className="text-xs text-muted-foreground mt-1">
-                            {formatDate(pr.date)} · {pr.isManualEntry ? 'Manual entry' : 'From workout'}
-                          </p>
-                        </div>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => {
-                            setEditingLift(lift.id)
-                            setWeight(pr.weight.toString())
-                            setReps(pr.reps.toString())
-                          }}
-                        >
-                          Update
-                        </Button>
-                      </div>
+                      <p className="text-xs text-muted-foreground mt-0.5 tabular-nums">
+                        {pr.weight} × {pr.reps} · {formatDate(pr.date)}
+                      </p>
                     ) : (
-                      <Button
-                        variant="ghost"
-                        className="w-full text-muted-foreground"
-                        onClick={() => setEditingLift(lift.id)}
-                      >
-                        + Add your PR
-                      </Button>
+                      <p className="text-xs text-muted-foreground mt-0.5">No record yet — tap to add</p>
                     )}
+                  </div>
+                </div>
+                {pr && !isEditing && (
+                  <div className="text-right shrink-0">
+                    <p className="text-lg font-bold tabular-nums">{pr.estimated1RM}</p>
+                    <p className="text-[9px] uppercase tracking-widest text-muted-foreground">{user.preferences.weightUnit} e1RM</p>
                   </div>
                 )}
-              </CardContent>
-            </Card>
+                <svg
+                  viewBox="0 0 24 24"
+                  className={cn(
+                    'h-4 w-4 text-muted-foreground transition-transform shrink-0',
+                    isEditing && 'rotate-180'
+                  )}
+                  fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"
+                >
+                  <path d="M6 9l6 6 6-6" />
+                </svg>
+              </button>
+
+              <AnimatePresence initial={false}>
+                {isEditing && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.22, ease: [0.4, 0, 0.2, 1] }}
+                    className="overflow-hidden"
+                  >
+                    <div className="px-4 pb-4 pt-1 border-t border-border/30 space-y-4">
+                      <div className="grid grid-cols-2 gap-3">
+                        <Field label={`Weight (${user.preferences.weightUnit})`}>
+                          <PlainNumberInput
+                            value={weight}
+                            onChange={setWeight}
+                            placeholder="225"
+                            ariaLabel="weight"
+                            autoFocus
+                          />
+                        </Field>
+                        <Field label="Reps">
+                          <PlainNumberInput
+                            value={reps}
+                            onChange={setReps}
+                            placeholder="5"
+                            ariaLabel="reps"
+                          />
+                        </Field>
+                      </div>
+
+                      {previewE1RM != null && previewE1RM > 0 && (
+                        <div className="rounded-xl bg-secondary/60 border border-border/30 px-3 py-2 flex items-center justify-between">
+                          <span className="text-xs text-muted-foreground">Estimated 1RM</span>
+                          <span className="font-bold tabular-nums">{previewE1RM} {user.preferences.weightUnit}</span>
+                        </div>
+                      )}
+
+                      <div className="flex gap-2">
+                        <Button variant="outline" className="flex-1" onClick={handleCancel}>
+                          Cancel
+                        </Button>
+                        <Button
+                          className="flex-1"
+                          onClick={() => handleSave(lift.id)}
+                          disabled={!weight || !reps || isSaving}
+                          loading={isSaving}
+                        >
+                          Save
+                        </Button>
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </motion.div>
           )
         })}
       </div>
 
-      <div className="mt-8 p-4 rounded-lg bg-secondary/50">
-        <h3 className="font-medium text-sm mb-2">About Estimated 1RM</h3>
-        <p className="text-xs text-muted-foreground">
-          We use the Epley formula to calculate your estimated one-rep max (e1RM) from your best lifts.
-          This helps suggest appropriate weights for your training.
+      <div className="mt-6 mx-5 p-4 rounded-2xl bg-secondary/40 border border-border/30">
+        <h3 className="font-semibold text-sm mb-1.5">About estimated 1RM</h3>
+        <p className="text-xs text-muted-foreground leading-relaxed">
+          We use the Epley formula to estimate your one-rep max from your best lifts. It's a useful guide for picking training weights, but not a substitute for a real test.
         </p>
       </div>
     </div>
+  )
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <span className="text-[10px] uppercase tracking-widest font-semibold text-muted-foreground">
+        {label}
+      </span>
+      {children}
+    </div>
+  )
+}
+
+/**
+ * Plain text input with numeric keyboard — bypasses any quirks with type="number"
+ * focus/autofocus on iOS PWAs.
+ */
+function PlainNumberInput({
+  value,
+  onChange,
+  placeholder,
+  ariaLabel,
+  autoFocus,
+}: {
+  value: string
+  onChange: (v: string) => void
+  placeholder?: string
+  ariaLabel?: string
+  autoFocus?: boolean
+}) {
+  return (
+    <input
+      type="text"
+      inputMode="decimal"
+      pattern="[0-9.]*"
+      autoComplete="off"
+      autoCorrect="off"
+      spellCheck={false}
+      value={value}
+      placeholder={placeholder}
+      aria-label={ariaLabel}
+      autoFocus={autoFocus}
+      onChange={(e) => {
+        // Allow digits and a single decimal point.
+        const cleaned = e.target.value.replace(/[^0-9.]/g, '')
+        onChange(cleaned)
+      }}
+      onFocus={(e) => e.currentTarget.select()}
+      className="h-12 w-full rounded-xl bg-input border border-border/40 px-3 text-lg font-semibold text-foreground placeholder:text-muted-foreground/40 tabular-nums focus:outline-none focus:ring-2 focus:ring-foreground/30 focus:border-foreground/40 transition-colors"
+    />
   )
 }

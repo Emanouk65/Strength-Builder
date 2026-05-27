@@ -11,20 +11,13 @@ import {
   checkIronWillAchievement,
   getBestLift,
   promoteToInProgress,
+  appendSetToExercise,
 } from '@/db'
-import { Button, Badge, Input, Slider, NumberStepper } from '@/components/ui'
+import { Button, Badge, Input, Slider } from '@/components/ui'
 import { cn, generateId } from '@/lib/utils'
-import { BLOCK_CONFIG, RPE_DESCRIPTIONS, ACHIEVEMENTS } from '@/lib/constants'
+import { BLOCK_CONFIG, ACHIEVEMENTS } from '@/lib/constants'
 import type { BlockType, SetInstance, WorkoutReflection, AchievementId } from '@/lib/types'
 
-const SET_COMPLETE_MESSAGES = [
-  "Nice lift!", "Crushed it!", "Strong!", "Let's go!", "Beast mode!",
-  "Solid set!", "That's how it's done!", "Keep pushing!", "On fire!", "Locked in!",
-]
-
-function getEncouragingMessage() {
-  return SET_COMPLETE_MESSAGES[Math.floor(Math.random() * SET_COMPLETE_MESSAGES.length)]
-}
 
 export function Workout() {
   const { workoutId } = useParams()
@@ -33,10 +26,39 @@ export function Workout() {
   const [showReflection, setShowReflection] = useState(false)
   const [showExitConfirm, setShowExitConfirm] = useState(false)
 
+  // Which exercise is currently expanded in the execution view. Auto-advances
+  // when the active exercise becomes fully complete; user can override by tap.
+  const [expandedExerciseId, setExpandedExerciseId] = useState<string | null>(null)
+
   const workoutData = useLiveQuery(
     async () => { if (!workoutId) return null; return getWorkoutWithDetails(workoutId) },
     [workoutId]
   )
+
+  const user = useLiveQuery(() => getCurrentUser(), [])
+  const weightUnit = user?.preferences.weightUnit ?? 'lbs'
+
+  // The "active" exercise is the first one with at least one incomplete set.
+  // When that changes (because the user just finished all sets in the previous
+  // active exercise), we move the expansion to follow.
+  const lastActiveRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!workoutData) return
+    const exercises = workoutData.blocks.flatMap(b => b.exercises)
+    const nextActive = exercises.find(ex => ex.sets.some(s => !s.completed))?.id ?? null
+
+    // First time we ever see data, expand the active exercise.
+    if (lastActiveRef.current === null && expandedExerciseId === null) {
+      lastActiveRef.current = nextActive
+      setExpandedExerciseId(nextActive)
+      return
+    }
+    // When the active exercise actually changes (auto-advance trigger), follow.
+    if (nextActive !== lastActiveRef.current) {
+      lastActiveRef.current = nextActive
+      setExpandedExerciseId(nextActive)
+    }
+  }, [workoutData, expandedExerciseId])
 
   // Guard against re-firing the status flip on every live-query re-emit.
   // Without this, the very update below triggers a re-fetch → re-render →
@@ -265,39 +287,40 @@ export function Workout() {
           {/* Exercises (with superset visual grouping) */}
           <div className="p-4">
             {currentBlock.exercises.length > 0 ? (
-              <div className="space-y-5">
-                {groupExercisesBySuperset(currentBlock.exercises).map((g, gi, all) => {
-                  const isLastGroup = gi === all.length - 1
+              <div className="space-y-3">
+                {groupExercisesBySuperset(currentBlock.exercises).map((g) => {
                   if (g.kind === 'solo') {
                     return (
                       <ExerciseBlock
                         key={g.instance.id}
                         exerciseInstance={g.instance}
-                        isLast={isLastGroup}
                         userId={workoutData.userId}
+                        isExpanded={expandedExerciseId === g.instance.id}
+                        onToggleExpand={() => setExpandedExerciseId(prev => prev === g.instance.id ? null : g.instance.id)}
+                        weightUnit={weightUnit}
                       />
                     )
                   }
                   return (
-                    <div key={g.groupId} className="rounded-2xl bg-foreground/[0.03] border border-foreground/15 p-3">
-                      <div className="flex items-center gap-2 px-1 pb-2">
+                    <div key={g.groupId} className="rounded-2xl bg-foreground/[0.04] border border-foreground/15 p-2 space-y-2">
+                      <div className="flex items-center gap-2 px-2 pt-1.5">
                         <span className="text-[10px] uppercase tracking-widest font-semibold text-foreground/70">
                           Superset · {g.members.length} exercises
                         </span>
                         <span className="text-[10px] text-muted-foreground">
-                          Alternate sets between exercises
+                          Alternate sets
                         </span>
                       </div>
-                      <div className="space-y-5">
-                        {g.members.map((m, mi) => (
-                          <ExerciseBlock
-                            key={m.id}
-                            exerciseInstance={m}
-                            isLast={mi === g.members.length - 1}
-                            userId={workoutData.userId}
-                          />
-                        ))}
-                      </div>
+                      {g.members.map((m) => (
+                        <ExerciseBlock
+                          key={m.id}
+                          exerciseInstance={m}
+                          userId={workoutData.userId}
+                          isExpanded={expandedExerciseId === m.id}
+                          onToggleExpand={() => setExpandedExerciseId(prev => prev === m.id ? null : m.id)}
+                          weightUnit={weightUnit}
+                        />
+                      ))}
                     </div>
                   )
                 })}
@@ -354,29 +377,29 @@ export function Workout() {
 }
 
 // ============================================================================
-// Exercise Block
+// Exercise Block — collapsible card with plain-input set rows + add-set
 // ============================================================================
 
 function ExerciseBlock({
   exerciseInstance,
-  isLast,
   userId,
+  isExpanded,
+  onToggleExpand,
+  weightUnit,
 }: {
   exerciseInstance: {
     id: string
     exerciseId: string
-    exercise?: { name: string; cues: string[] }
+    exercise?: { name: string; cues: string[]; primaryMuscles?: string[] }
     sets: SetInstance[]
     notes: string
   }
-  isLast: boolean
   userId?: string
+  /** Controlled by parent so it can auto-advance between exercises. */
+  isExpanded: boolean
+  onToggleExpand: () => void
+  weightUnit: 'lbs' | 'kg'
 }) {
-  const [expandedSet, setExpandedSet] = useState<number | null>(0)
-  const [celebratingSet, setCelebratingSet] = useState<number | null>(null)
-  const [celebrationMessage, setCelebrationMessage] = useState('')
-
-  // Fetch PR for this exercise
   const [prWeight, setPrWeight] = useState<number | null>(null)
   useEffect(() => {
     if (!userId || !exerciseInstance.exerciseId) return
@@ -387,266 +410,291 @@ function ExerciseBlock({
 
   const completedSets = exerciseInstance.sets.filter(s => s.completed).length
   const totalSets = exerciseInstance.sets.length
-  const allSetsComplete = completedSets === totalSets && totalSets > 0
+  const allDone = completedSets === totalSets && totalSets > 0
 
-  const handleSetComplete = async (set: SetInstance, data: Partial<SetInstance>) => {
-    const currentIndex = exerciseInstance.sets.findIndex(s => s.id === set.id)
-    setCelebratingSet(currentIndex)
-    setCelebrationMessage(getEncouragingMessage())
-
-    await db.setInstances.update(set.id, { ...data, completed: true })
-
-    setTimeout(() => { setCelebratingSet(null); setCelebrationMessage('') }, 1500)
-
-    if (currentIndex < exerciseInstance.sets.length - 1) {
-      setExpandedSet(currentIndex + 1)
-    } else {
-      setExpandedSet(null)
-    }
-  }
+  const muscles = exerciseInstance.exercise?.primaryMuscles
+    ? exerciseInstance.exercise.primaryMuscles.slice(0, 2).map(m => m.replace(/_/g, ' ')).join(' · ')
+    : null
 
   return (
-    <div className={cn('relative', !isLast && 'pb-5 border-b border-border/30')}>
-      {/* Exercise header */}
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-2 flex-1 min-w-0">
-          <h4 className="font-bold text-base truncate">{exerciseInstance.exercise?.name || 'Exercise'}</h4>
-          {allSetsComplete && <span className="text-success animate-bounce-in text-lg flex-shrink-0">✓</span>}
+    <motion.div
+      layout
+      transition={{ layout: { duration: 0.22, ease: [0.4, 0, 0.2, 1] } }}
+      className={cn(
+        'rounded-2xl bg-card border overflow-hidden',
+        allDone ? 'border-foreground/30' : 'border-border/40',
+        isExpanded && 'shadow-card'
+      )}
+    >
+      {/* Header — tap to toggle */}
+      <button
+        type="button"
+        onClick={onToggleExpand}
+        className="w-full flex items-center justify-between gap-3 px-4 py-3.5 text-left hover:bg-secondary/30 transition-colors"
+      >
+        <div className="flex items-center gap-2 min-w-0 flex-1">
+          {allDone && (
+            <span className="h-6 w-6 rounded-full bg-foreground text-background flex items-center justify-center shrink-0">
+              <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+            </span>
+          )}
+          <div className="min-w-0">
+            <h4 className="font-semibold text-base text-foreground truncate">
+              {exerciseInstance.exercise?.name || 'Exercise'}
+            </h4>
+            <p className="text-xs text-muted-foreground truncate mt-0.5">
+              {completedSets}/{totalSets} sets
+              {muscles && ` · ${muscles}`}
+              {prWeight && ` · PR ${prWeight} ${weightUnit}`}
+            </p>
+          </div>
         </div>
-        <div className="flex items-center gap-2 flex-shrink-0">
-          {/* Set progress dots */}
+        <div className="flex items-center gap-2 shrink-0">
           <div className="flex gap-1">
-            {exerciseInstance.sets.map((set, i) => (
+            {exerciseInstance.sets.map((s, i) => (
               <div
                 key={i}
                 className={cn(
-                  'w-2 h-2 rounded-full transition-all duration-300',
-                  set.completed ? 'bg-success scale-110' : 'bg-secondary',
-                  celebratingSet === i && 'animate-pulse-success'
+                  'w-1.5 h-1.5 rounded-full',
+                  s.completed ? 'bg-foreground' : 'bg-foreground/20'
                 )}
               />
             ))}
           </div>
-          <span className="text-xs font-mono text-muted-foreground">{completedSets}/{totalSets}</span>
-        </div>
-      </div>
-
-      {/* PR indicator */}
-      {prWeight && (
-        <p className="text-xs text-accent-orange mb-2 font-semibold">
-          🏆 PR: {prWeight} lbs
-        </p>
-      )}
-
-      {/* Celebration toast — floats from bottom, away from exercise name */}
-      <AnimatePresence>
-        {celebrationMessage && (
-          <motion.div
-            initial={{ opacity: 0, y: 20, scale: 0.9 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -10 }}
-            transition={{ duration: 0.22 }}
-            className="fixed bottom-24 inset-x-0 z-30 flex justify-center pointer-events-none"
+          <svg
+            viewBox="0 0 24 24"
+            className={cn(
+              'h-4 w-4 text-muted-foreground transition-transform',
+              isExpanded && 'rotate-180'
+            )}
+            fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"
           >
-            <span className="text-sm font-semibold text-background bg-foreground px-4 py-2 rounded-full shadow-card">
-              {celebrationMessage}
-            </span>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      <div className="space-y-2">
-        {exerciseInstance.sets.map((set, index) => (
-          <WorkoutSetRow
-            key={set.id}
-            set={set}
-            setNumber={index + 1}
-            isExpanded={expandedSet === index}
-            onExpand={() => setExpandedSet(expandedSet === index ? null : index)}
-            onPatch={async (patch) => { await db.setInstances.update(set.id, patch) }}
-            onComplete={data => handleSetComplete(set, data)}
-            justCompleted={celebratingSet === index}
-            prWeight={prWeight}
-          />
-        ))}
-      </div>
-
-      {exerciseInstance.exercise?.cues && exerciseInstance.exercise.cues.length > 0 && (
-        <p className="text-xs text-muted-foreground mt-3 leading-relaxed">
-          💡 {exerciseInstance.exercise.cues.join(' · ')}
-        </p>
-      )}
-    </div>
-  )
-}
-
-// ============================================================================
-// Workout Set Row
-// ============================================================================
-
-function WorkoutSetRow({
-  set,
-  setNumber,
-  isExpanded,
-  onExpand,
-  onPatch,
-  onComplete,
-  justCompleted = false,
-  prWeight,
-}: {
-  set: SetInstance
-  setNumber: number
-  isExpanded: boolean
-  onExpand: () => void
-  /** Partial autosave — writes a field without marking the set complete. */
-  onPatch: (patch: Partial<SetInstance>) => void | Promise<void>
-  onComplete: (data: Partial<SetInstance>) => void
-  justCompleted?: boolean
-  prWeight?: number | null
-}) {
-  // Display values fall back through actual → target → empty.
-  const weight = set.actualWeight ?? set.targetWeight
-  const reps = set.actualReps ?? set.targetReps
-  const rpe = set.actualRPE ?? set.targetRPE
-
-  const isPRWeight = prWeight != null && weight != null && weight > prWeight
-
-  if (set.completed) {
-    return (
-      <div
-        className={cn(
-          'flex items-center justify-between rounded-xl px-3 py-2.5 transition-all duration-300',
-          justCompleted
-            ? 'bg-foreground/10 border border-foreground/25 animate-set-complete'
-            : 'bg-secondary/40 border border-transparent'
-        )}
-      >
-        <span className="text-sm font-mono text-muted-foreground">Set {setNumber}</span>
-        <div className="flex items-center gap-3 text-sm">
-          <span className="font-semibold text-foreground">{set.actualWeight ?? '—'} lbs</span>
-          <span className="text-foreground/70">× {set.actualReps ?? '—'}</span>
-          {set.actualRPE != null && (
-            <span className="text-xs font-mono text-muted-foreground">@{set.actualRPE}</span>
-          )}
-          <div className="w-6 h-6 rounded-lg flex items-center justify-center text-foreground">
-            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round">
-              <polyline points="20 6 9 17 4 12" />
-            </svg>
-          </div>
-        </div>
-      </div>
-    )
-  }
-
-  if (!isExpanded) {
-    return (
-      <button
-        onClick={onExpand}
-        className="w-full flex items-center justify-between rounded-xl bg-secondary/50 border border-border/60 px-3 py-2.5 text-left hover:border-foreground/30 hover:bg-secondary/70 transition-all duration-150 active:scale-[0.98]"
-      >
-        <span className="text-sm font-bold text-foreground">Set {setNumber}</span>
-        <div className="flex items-center gap-3 text-sm">
-          <span className="font-semibold text-foreground/80">{weight ?? '—'} lbs</span>
-          <span className="text-foreground/60">× {reps ?? '—'}</span>
-          {rpe != null && (
-            <span className="text-xs font-semibold text-muted-foreground">@{rpe}</span>
-          )}
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="text-muted-foreground">
-            <path d="m6 9 6 6 6-6" />
+            <path d="M6 9l6 6 6-6" />
           </svg>
         </div>
       </button>
-    )
+
+      <AnimatePresence initial={false}>
+        {isExpanded && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.22, ease: [0.4, 0, 0.2, 1] }}
+            className="overflow-hidden"
+          >
+            <div className="px-4 pb-4 pt-1 border-t border-border/30">
+              {/* Column labels */}
+              <div className="grid grid-cols-[2.5rem_1fr_1fr_1fr_2.75rem] gap-2 px-2 pb-2 pt-3 text-[10px] uppercase tracking-widest font-semibold text-muted-foreground">
+                <span>Set</span>
+                <span>Weight</span>
+                <span>Reps</span>
+                <span>RPE</span>
+                <span />
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                {exerciseInstance.sets.map((set, idx) => (
+                  <SetEditableRow
+                    key={set.id}
+                    set={set}
+                    setNumber={idx + 1}
+                    weightUnit={weightUnit}
+                  />
+                ))}
+              </div>
+
+              <button
+                onClick={() => appendSetToExercise(exerciseInstance.id)}
+                className="mt-3 w-full flex items-center justify-center gap-2 h-10 rounded-xl border-2 border-dashed border-border/60 text-xs font-medium text-muted-foreground hover:text-foreground hover:border-foreground/30 hover:bg-secondary/30 transition-colors active:scale-[0.985]"
+              >
+                <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
+                Add set
+              </button>
+
+              {exerciseInstance.exercise?.cues && exerciseInstance.exercise.cues.length > 0 && (
+                <p className="text-xs text-muted-foreground mt-3 leading-relaxed">
+                  💡 {exerciseInstance.exercise.cues.join(' · ')}
+                </p>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </motion.div>
+  )
+}
+
+// ============================================================================
+// Set Row — single tappable row with plain text inputs (no steppers)
+// ============================================================================
+
+function SetEditableRow({
+  set,
+  setNumber,
+  weightUnit,
+}: {
+  set: SetInstance
+  setNumber: number
+  weightUnit: 'lbs' | 'kg'
+}) {
+  // Show actual if logged, otherwise show target as a placeholder hint.
+  const weightDisplay = set.actualWeight ?? set.targetWeight
+  const repsDisplay = set.actualReps ?? set.targetReps
+  const rpeDisplay = set.actualRPE ?? set.targetRPE
+
+  // Local text state for each field — synced FROM DB on changes elsewhere,
+  // synced TO DB onBlur. Lets the user type freely without the field snapping
+  // back to a stale value mid-edit.
+  const [weightText, setWeightText] = useState<string>(weightDisplay != null ? String(weightDisplay) : '')
+  const [repsText, setRepsText] = useState<string>(repsDisplay != null ? String(repsDisplay) : '')
+  const [rpeText, setRpeText] = useState<string>(rpeDisplay != null ? String(rpeDisplay) : '')
+
+  // When the DB value changes externally (e.g. another tab), reflect it locally.
+  useEffect(() => {
+    setWeightText(weightDisplay != null ? String(weightDisplay) : '')
+  }, [weightDisplay])
+  useEffect(() => {
+    setRepsText(repsDisplay != null ? String(repsDisplay) : '')
+  }, [repsDisplay])
+  useEffect(() => {
+    setRpeText(rpeDisplay != null ? String(rpeDisplay) : '')
+  }, [rpeDisplay])
+
+  const commit = async (patch: Partial<SetInstance>) => {
+    await db.setInstances.update(set.id, patch)
+  }
+
+  const commitWeight = () => {
+    const v = weightText.trim()
+    if (v === '') return commit({ actualWeight: null })
+    const n = parseFloat(v)
+    if (!Number.isFinite(n)) return
+    return commit({ actualWeight: n })
+  }
+  const commitReps = () => {
+    const v = repsText.trim()
+    if (v === '') return commit({ actualReps: null })
+    const n = parseInt(v, 10)
+    if (!Number.isFinite(n)) return
+    return commit({ actualReps: n })
+  }
+  const commitRpe = () => {
+    const v = rpeText.trim()
+    if (v === '') return commit({ actualRPE: null })
+    const n = parseInt(v, 10)
+    if (!Number.isFinite(n)) return
+    return commit({ actualRPE: Math.min(Math.max(n, 1), 10) })
+  }
+
+  const toggleComplete = async () => {
+    // Persist any in-flight typing first.
+    await Promise.all([commitWeight(), commitReps(), commitRpe()])
+    await db.setInstances.update(set.id, { completed: !set.completed })
   }
 
   return (
-    <div className="rounded-2xl border border-foreground/25 bg-card shadow-card animate-slide-up overflow-hidden">
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 pt-3 pb-2 border-b border-border/30">
-        <span className="text-xs font-bold text-foreground uppercase tracking-wider">Set {setNumber}</span>
-        {(set.targetWeight || set.targetReps) ? (
-          <span className="text-[10px] font-mono text-muted-foreground">
-            Target {set.targetWeight ?? '—'} × {set.targetReps ?? '—'}{set.targetRPE != null && ` @${set.targetRPE}`}
-          </span>
-        ) : null}
-      </div>
-
-      {isPRWeight && (
-        <div className="bg-foreground/10 border-b border-foreground/20 px-3 py-2 text-center">
-          <p className="text-xs font-bold text-foreground">🏆 NEW PR WEIGHT</p>
-        </div>
+    <div
+      className={cn(
+        'grid grid-cols-[2.5rem_1fr_1fr_1fr_2.75rem] gap-2 items-center rounded-xl px-2 py-1.5 transition-colors',
+        set.completed ? 'bg-foreground/10' : 'bg-secondary/30'
       )}
+    >
+      <span className={cn(
+        'text-sm font-mono tabular-nums text-center',
+        set.completed ? 'text-foreground/80' : 'text-muted-foreground'
+      )}>
+        {setNumber}
+      </span>
 
-      {/* Three labeled controls — auto-save on each change */}
-      <div className="px-4 py-4 grid grid-cols-3 gap-3">
-        <SetField label="Weight" suffix="lbs">
-          <NumberStepper
-            value={weight ?? null}
-            onChange={(v) => onPatch({ actualWeight: v })}
-            min={0}
-            max={2000}
-            step={5}
-            integer={false}
-            size="md"
-            ariaLabel="weight"
-          />
-        </SetField>
-        <SetField label="Reps">
-          <NumberStepper
-            value={reps ?? null}
-            onChange={(v) => onPatch({ actualReps: v })}
-            min={0}
-            max={500}
-            size="md"
-            ariaLabel="reps"
-          />
-        </SetField>
-        <SetField label="RPE">
-          <NumberStepper
-            value={rpe ?? null}
-            onChange={(v) => onPatch({ actualRPE: v })}
-            min={1}
-            max={10}
-            size="md"
-            ariaLabel="rpe"
-          />
-        </SetField>
-      </div>
+      <CellInput
+        value={weightText}
+        onChange={setWeightText}
+        onBlur={commitWeight}
+        placeholder={set.targetWeight != null ? String(set.targetWeight) : '–'}
+        ariaLabel={`Set ${setNumber} weight in ${weightUnit}`}
+        completed={set.completed}
+        allowDecimal
+      />
+      <CellInput
+        value={repsText}
+        onChange={setRepsText}
+        onBlur={commitReps}
+        placeholder={set.targetReps != null ? String(set.targetReps) : '–'}
+        ariaLabel={`Set ${setNumber} reps`}
+        completed={set.completed}
+      />
+      <CellInput
+        value={rpeText}
+        onChange={setRpeText}
+        onBlur={commitRpe}
+        placeholder={set.targetRPE != null ? String(set.targetRPE) : '–'}
+        ariaLabel={`Set ${setNumber} RPE`}
+        completed={set.completed}
+      />
 
-      {/* RPE description + Done */}
-      <div className="flex items-center justify-between px-4 pb-3 gap-3">
-        <p className="text-[10px] font-medium text-muted-foreground flex-1 truncate">
-          {rpe != null ? RPE_DESCRIPTIONS[rpe] : 'Set values auto-save'}
-        </p>
-        <button
-          onClick={onExpand}
-          className="text-xs font-medium text-muted-foreground hover:text-foreground transition-colors px-2 py-1"
-        >
-          Close
-        </button>
-        <Button
-          size="sm"
-          onClick={() => onComplete({
-            actualWeight: weight ?? set.targetWeight ?? null,
-            actualReps: reps ?? set.targetReps ?? null,
-            actualRPE: rpe ?? set.targetRPE ?? null,
-          })}
-        >
-          ✓ Done
-        </Button>
-      </div>
+      <button
+        onClick={toggleComplete}
+        className={cn(
+          'h-10 w-10 flex items-center justify-center rounded-lg transition-colors touch-target shrink-0',
+          set.completed
+            ? 'bg-foreground text-background'
+            : 'bg-secondary/80 text-muted-foreground hover:text-foreground hover:bg-secondary'
+        )}
+        aria-label={set.completed ? 'Mark set incomplete' : 'Mark set complete'}
+      >
+        <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="20 6 9 17 4 12" />
+        </svg>
+      </button>
     </div>
   )
 }
 
-function SetField({ label, suffix, children }: { label: string; suffix?: string; children: React.ReactNode }) {
+function CellInput({
+  value,
+  onChange,
+  onBlur,
+  placeholder,
+  ariaLabel,
+  completed,
+  allowDecimal,
+}: {
+  value: string
+  onChange: (v: string) => void
+  onBlur: () => void | Promise<void>
+  placeholder?: string
+  ariaLabel?: string
+  completed?: boolean
+  allowDecimal?: boolean
+}) {
   return (
-    <div className="flex flex-col gap-1.5">
-      <span className="text-[10px] uppercase tracking-wider font-semibold text-muted-foreground">
-        {label}{suffix && <span className="ml-1 normal-case tracking-normal text-muted-foreground/70">{suffix}</span>}
-      </span>
-      {children}
-    </div>
+    <input
+      type="text"
+      inputMode={allowDecimal ? 'decimal' : 'numeric'}
+      pattern={allowDecimal ? '[0-9.]*' : '[0-9]*'}
+      autoComplete="off"
+      autoCorrect="off"
+      spellCheck={false}
+      value={value}
+      placeholder={placeholder}
+      aria-label={ariaLabel}
+      onChange={(e) => {
+        const cleaned = e.target.value.replace(allowDecimal ? /[^0-9.]/g : /[^0-9]/g, '')
+        onChange(cleaned)
+      }}
+      onFocus={(e) => e.currentTarget.select()}
+      onBlur={onBlur}
+      onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+      className={cn(
+        'h-10 w-full text-center rounded-lg bg-input border border-border/30 px-1 text-base font-semibold tabular-nums',
+        'focus:outline-none focus:ring-2 focus:ring-foreground/30 focus:border-foreground/40 focus:bg-card',
+        'placeholder:text-muted-foreground/40 transition-colors',
+        completed ? 'text-foreground' : 'text-foreground'
+      )}
+    />
   )
 }
 

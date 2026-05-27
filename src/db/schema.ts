@@ -1175,6 +1175,44 @@ export async function updateSetInstance(
 }
 
 /**
+ * Append a single set to an exercise instance. Used during execution when the
+ * user wants to add a bonus set on the fly. Returns the new set's id.
+ */
+export async function appendSetToExercise(instanceId: string): Promise<string | null> {
+  const existing = await db.setInstances
+    .where('exerciseInstanceId').equals(instanceId)
+    .sortBy('setNumber')
+  if (existing.length === 0) return null
+
+  const template = existing[existing.length - 1]
+  const newSet: SetInstance = {
+    id: crypto.randomUUID(),
+    exerciseInstanceId: instanceId,
+    setNumber: template.setNumber + 1,
+    setType: 'working',
+    targetReps: template.targetReps,
+    targetWeight: template.targetWeight,
+    targetRPE: template.targetRPE,
+    targetDuration: template.targetDuration,
+    actualReps: null,
+    actualWeight: null,
+    actualRPE: null,
+    actualDuration: null,
+    completed: false,
+    skipped: false,
+    painSignal: null,
+  }
+  await db.setInstances.add(newSet)
+
+  const instance = await db.exerciseInstances.get(instanceId)
+  if (instance) {
+    const block = await db.workoutBlocks.get(instance.blockId)
+    if (block) await db.workouts.update(block.workoutId, { lastEditedAt: new Date() })
+  }
+  return newSet.id
+}
+
+/**
  * Change the number of working sets for an exercise instance. Adds or removes
  * trailing SetInstances to reach the target count.
  */
