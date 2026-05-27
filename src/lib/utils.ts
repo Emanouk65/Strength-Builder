@@ -234,3 +234,54 @@ export function getLocalDateString(date = new Date()): string {
 export function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms))
 }
+
+// ============================================================================
+// Motion presets — shared framer-motion variants/transitions
+// ============================================================================
+
+/** Standard page fade + subtle slide-in. */
+export const pageMotion = {
+  initial: { opacity: 0, y: 8 },
+  animate: { opacity: 1, y: 0 },
+  exit: { opacity: 0, y: -8 },
+  transition: { duration: 0.22, ease: [0.4, 0, 0.2, 1] as const },
+}
+
+/** Container that staggers its children. Use with `cardMotion` on the children. */
+export const listMotion = {
+  initial: 'hidden',
+  animate: 'visible',
+  variants: {
+    hidden: {},
+    visible: { transition: { staggerChildren: 0.04, delayChildren: 0.02 } },
+  },
+}
+
+export const cardMotion = {
+  variants: {
+    hidden: { opacity: 0, y: 12 },
+    visible: { opacity: 1, y: 0, transition: { duration: 0.28, ease: [0.4, 0, 0.2, 1] as const } },
+  },
+}
+
+/** Bottom sheet (slide up from bottom). */
+export const sheetMotion = {
+  initial: { y: '100%' },
+  animate: { y: 0 },
+  exit: { y: '100%' },
+  transition: { duration: 0.28, ease: [0.4, 0, 0.2, 1] as const },
+}
+
+/** Modal/overlay fade. */
+export const overlayMotion = {
+  initial: { opacity: 0 },
+  animate: { opacity: 1 },
+  exit: { opacity: 0 },
+  transition: { duration: 0.18 },
+}
+
+/** Tap feedback for interactive elements. */
+export const tapMotion = {
+  whileTap: { scale: 0.97 },
+  transition: { duration: 0.1 },
+}

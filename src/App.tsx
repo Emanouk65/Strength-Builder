@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react'
-import { Routes, Route, Navigate } from 'react-router-dom'
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
+import { AnimatePresence, motion } from 'framer-motion'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { initializeDatabase, getCurrentUser } from '@/db'
 import { useRegisterSW } from 'virtual:pwa-register/react'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
+import { pageMotion } from '@/lib/utils'
 
 // Pages
 import { Dashboard } from '@/pages/Dashboard'
@@ -12,11 +14,41 @@ import { Workout } from '@/pages/Workout'
 import { Program } from '@/pages/Program'
 import { History } from '@/pages/History'
 import { Settings } from '@/pages/Settings'
-import { QuickLog } from '@/pages/QuickLog'
 import { DailyCheckInPage } from '@/pages/DailyCheckIn'
 import { LiftRecords } from '@/pages/LiftRecords'
-import { ActiveWorkout } from '@/pages/ActiveWorkout'
+import { Plan } from '@/pages/Plan'
 import { Layout } from '@/components/Layout'
+
+function AnimatedRoutes() {
+  const location = useLocation()
+  return (
+    <AnimatePresence mode="wait">
+      <motion.div
+        key={location.pathname}
+        initial={pageMotion.initial}
+        animate={pageMotion.animate}
+        exit={pageMotion.exit}
+        transition={pageMotion.transition}
+      >
+        <Routes location={location} key={location.pathname}>
+          <Route path="/" element={<Dashboard />} />
+          <Route path="/workout/:workoutId?" element={<Workout />} />
+          <Route path="/plan" element={<Plan />} />
+          <Route path="/plan/:workoutId" element={<Plan />} />
+          <Route path="/check-in" element={<DailyCheckInPage />} />
+          <Route path="/program" element={<Program />} />
+          <Route path="/history" element={<History />} />
+          <Route path="/settings" element={<Settings />} />
+          <Route path="/lift-records" element={<LiftRecords />} />
+          {/* Legacy redirects */}
+          <Route path="/quick-log" element={<Navigate to="/plan" replace />} />
+          <Route path="/active-workout" element={<Navigate to="/plan" replace />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </motion.div>
+    </AnimatePresence>
+  )
+}
 
 function LoadingScreen() {
   return (
@@ -108,18 +140,7 @@ function App() {
   // Has local user - show workout app
   return (
     <Layout>
-      <Routes>
-        <Route path="/" element={<Dashboard />} />
-        <Route path="/workout/:workoutId?" element={<Workout />} />
-        <Route path="/quick-log" element={<QuickLog />} />
-        <Route path="/active-workout" element={<ActiveWorkout />} />
-        <Route path="/check-in" element={<DailyCheckInPage />} />
-        <Route path="/program" element={<Program />} />
-        <Route path="/history" element={<History />} />
-        <Route path="/settings" element={<Settings />} />
-        <Route path="/lift-records" element={<LiftRecords />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
+      <AnimatedRoutes />
     </Layout>
   )
 }

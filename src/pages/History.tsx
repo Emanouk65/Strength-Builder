@@ -1,8 +1,9 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useNavigate } from 'react-router-dom'
+import { motion } from 'framer-motion'
 import { db, getCurrentUser, getRecentReflections } from '@/db'
 import { Card, CardContent, CardHeader, CardTitle, Badge } from '@/components/ui'
-import { formatDate } from '@/lib/utils'
+import { formatDate, listMotion, cardMotion } from '@/lib/utils'
 import type { WorkoutReflection } from '@/lib/types'
 
 export function History() {
@@ -120,45 +121,48 @@ export function History() {
         <h2 className="text-sm font-medium text-muted-foreground">Recent Workouts</h2>
 
         {recentWorkouts && recentWorkouts.length > 0 ? (
-          recentWorkouts.map((workout) => {
-            const reflection = reflectionsByWorkout.get(workout.id)
-            return (
-              <Card
-                key={workout.id}
-                className="cursor-pointer hover:border-muted-foreground/50 transition-colors"
-                onClick={() => navigate(`/workout/${workout.id}`)}
-              >
-                <CardContent className="py-3">
-                  <div className="flex items-center justify-between mb-2">
-                    <div>
-                      <h3 className="font-medium">{workout.name}</h3>
-                      <p className="text-xs text-muted-foreground">
-                        {formatDate(workout.completedAt!, 'long')}
-                      </p>
-                    </div>
-                    <Badge variant="success">Complete</Badge>
-                  </div>
+          <motion.div className="space-y-3" {...listMotion}>
+            {recentWorkouts.map((workout) => {
+              const reflection = reflectionsByWorkout.get(workout.id)
+              return (
+                <motion.div key={workout.id} {...cardMotion}>
+                  <Card
+                    className="cursor-pointer hover:border-primary/30 transition-colors active:scale-[0.99]"
+                    onClick={() => navigate(`/workout/${workout.id}`)}
+                  >
+                    <CardContent className="py-3">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="min-w-0">
+                          <h3 className="font-semibold truncate">{workout.name}</h3>
+                          <p className="text-xs text-muted-foreground">
+                            {formatDate(workout.completedAt!, 'long')}
+                          </p>
+                        </div>
+                        <Badge variant="success">Complete</Badge>
+                      </div>
 
-                  {reflection && (
-                    <div className="flex items-center gap-4 text-sm">
-                      <span className="text-muted-foreground">
-                        Energy: <span className="text-foreground">{reflection.energy}/10</span>
-                      </span>
-                      <span className="text-muted-foreground">
-                        Performance:{' '}
-                        <span className="text-foreground">{reflection.performance}/10</span>
-                      </span>
-                      {reflection.winOfTheDay && (
-                        <span className="text-success text-xs truncate max-w-[150px]">
-                          "{reflection.winOfTheDay}"
-                        </span>
+                      {reflection && (
+                        <div className="flex items-center gap-4 text-sm">
+                          <span className="text-muted-foreground">
+                            Energy: <span className="text-foreground">{reflection.energy}/10</span>
+                          </span>
+                          <span className="text-muted-foreground">
+                            Perf:{' '}
+                            <span className="text-foreground">{reflection.performance}/10</span>
+                          </span>
+                          {reflection.winOfTheDay && (
+                            <span className="text-success text-xs truncate max-w-[150px]">
+                              "{reflection.winOfTheDay}"
+                            </span>
+                          )}
+                        </div>
                       )}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            )
-          })
+                    </CardContent>
+                  </Card>
+                </motion.div>
+              )
+            })}
+          </motion.div>
         ) : (
           <Card>
             <CardContent className="py-8 text-center">

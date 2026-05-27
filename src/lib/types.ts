@@ -219,15 +219,26 @@ export type WorkoutType =
   | 'quick_log'   // Free-form user-logged workout
   | 'cardio'      // Cardio-only session
 
+export type WorkoutStatus = 'draft' | 'planned' | 'in_progress' | 'completed' | 'skipped'
+
 export interface Workout {
   id: string
   userId: string
-  weekId: string | null      // null for quick_log workouts
+  weekId: string | null      // null for quick_log / ad-hoc workouts
   workoutType: WorkoutType
   dayOfWeek: number // 0-6
   scheduledDate: Date
   completedAt: Date | null
-  status: 'planned' | 'in_progress' | 'completed' | 'skipped'
+  /**
+   * - draft: in-progress planning, autosaved, not yet scheduled
+   * - planned: scheduled for a date, ready to start
+   * - in_progress: currently being executed
+   * - completed: finished
+   * - skipped: explicitly skipped
+   */
+  status: WorkoutStatus
+  /** Set on every autosave during planning + last execution write */
+  lastEditedAt: Date | null
   name: string // e.g., "Upper A", "Lower Power", "Pull", "Morning Run"
   totalDuration: number // Minutes
   coachingNotes: string[] // LLM-generated
@@ -253,9 +264,10 @@ export interface CardioWorkoutData {
 }
 
 // ----------------------------------------------------------------------------
-// Quick Log Entry (Simplified logging for individual exercises)
+// Quick Log Entry (DEPRECATED — kept for v4→v5 migration only)
 // ----------------------------------------------------------------------------
 
+/** @deprecated Use WorkoutBlock → ExerciseInstance → SetInstance instead. Migrated to the unified schema in Dexie v5. */
 export interface QuickLogEntry {
   id: string
   workoutId: string           // Reference to parent quick_log workout

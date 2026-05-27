@@ -1,7 +1,8 @@
 import { useState, useMemo } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useNavigate } from 'react-router-dom'
-import { db, getCurrentUser, getNextAvailableWorkout, getMissedWorkouts, skipWorkout, getActivePhase, getRecentReflections, getUserAchievements, getTodaysCheckIn, getRecentCheckIns } from '@/db'
+import { motion } from 'framer-motion'
+import { db, getCurrentUser, getNextAvailableWorkout, getMissedWorkouts, skipWorkout, getActivePhase, getRecentReflections, getUserAchievements, getTodaysCheckIn, getRecentCheckIns, getDraftWorkout, getScheduledWorkouts } from '@/db'
 import { Button, Card, CardContent, CardHeader, CardTitle, Badge, Progress } from '@/components/ui'
 import { formatDate, formatDuration, cn, getShortDayName, getLocalDateString } from '@/lib/utils'
 import { PHASE_CONFIG, ACHIEVEMENTS } from '@/lib/constants'
@@ -76,12 +77,20 @@ export function Dashboard() {
         .toArray()
       let totalSets = 0
       if (workouts.length > 0) {
+        // Unified counting: SetInstances are the source of truth post-v5.
         const workoutIds = workouts.map(w => w.id)
-        const entries = await db.quickLogEntries
-          .where('workoutId')
-          .anyOf(workoutIds)
-          .toArray()
-        totalSets = entries.reduce((acc, e) => acc + e.sets.filter(s => s.completed || (s.weight != null && s.reps != null)).length, 0)
+        const blocks = await db.workoutBlocks.where('workoutId').anyOf(workoutIds).toArray()
+        const blockIds = blocks.map(b => b.id)
+        if (blockIds.length > 0) {
+          const instances = await db.exerciseInstances.where('blockId').anyOf(blockIds).toArray()
+          const instanceIds = instances.map(i => i.id)
+          if (instanceIds.length > 0) {
+            totalSets = await db.setInstances
+              .where('exerciseInstanceId').anyOf(instanceIds)
+              .filter(s => s.completed)
+              .count()
+          }
+        }
       }
       return { workouts, totalSets }
     },
@@ -103,6 +112,27 @@ export function Dashboard() {
     async () => {
       if (!user) return []
       return getRecentCheckIns(user.id, 7)
+    },
+    [user]
+  )
+
+  const draftWorkout = useLiveQuery(
+    async () => {
+      if (!user) return null
+      return (await getDraftWorkout(user.id)) ?? null
+    },
+    [user]
+  )
+
+  const readyToGo = useLiveQuery(
+    async () => {
+      if (!user) return [] as Workout[]
+      const start = new Date(); start.setHours(0, 0, 0, 0)
+      const end = new Date(start); end.setDate(end.getDate() + 7)
+      // Only show user-scheduled drafts (weekId === null) — programmed
+      // workouts surface via the NextWorkoutCard.
+      const list = await getScheduledWorkouts(user.id, start, end)
+      return list.filter(w => w.weekId === null)
     },
     [user]
   )
@@ -164,11 +194,28 @@ export function Dashboard() {
           missedWorkouts={missedWorkouts || []}
         />
 
+        {/* Resume Draft */}
+        {draftWorkout && (
+          <ResumeDraftCard
+            workout={draftWorkout}
+            onResume={() => navigate(`/plan/${draftWorkout.id}`)}
+          />
+        )}
+
+        {/* Ready to go (user-scheduled, upcoming) */}
+        {readyToGo && readyToGo.length > 0 && (
+          <ReadyToGoList
+            workouts={readyToGo}
+            onStart={(id) => navigate(`/workout/${id}`)}
+            onEdit={(id) => navigate(`/plan/${id}`)}
+          />
+        )}
+
         {/* Next Workout Hero Card */}
         <NextWorkoutCard
           nextWorkout={nextWorkout}
           onStart={(id) => navigate(`/workout/${id}`)}
-          onQuickLog={() => navigate('/quick-log')}
+          onStartFree={() => navigate('/plan')}
           onProgram={() => navigate('/program')}
         />
 
@@ -179,10 +226,10 @@ export function Dashboard() {
         <div className="grid grid-cols-2 gap-3">
           <QuickActionCard
             icon={<BarbellIcon />}
-            title="Quick Log"
-            subtitle="Free workout"
+            title="Plan workout"
+            subtitle="Build & start"
             accent="primary"
-            onClick={() => navigate('/quick-log')}
+            onClick={() => navigate('/plan')}
           />
           <QuickActionCard
             icon={<ChartLineIcon />}
@@ -325,12 +372,12 @@ export function Dashboard() {
 function NextWorkoutCard({
   nextWorkout,
   onStart,
-  onQuickLog,
+  onStartFree,
   onProgram,
 }: {
   nextWorkout: Workout | null | undefined
   onStart: (id: string) => void
-  onQuickLog: () => void
+  onStartFree: () => void
   onProgram: () => void
 }) {
   if (nextWorkout?.status === 'completed') {
@@ -344,7 +391,7 @@ function NextWorkoutCard({
           </div>
           <p className="font-bold text-foreground">Workout Complete!</p>
           <p className="text-sm text-muted-foreground mt-1 mb-4">Nice work today. Keep the momentum going.</p>
-          <Button variant="outline" onClick={onQuickLog}>Log Another</Button>
+          <Button variant="outline" onClick={onStartFree}>Plan Another</Button>
         </CardContent>
       </Card>
     )
@@ -402,7 +449,7 @@ function NextWorkoutCard({
         <h2 className="text-xl font-black text-foreground mb-1">No Scheduled Workout</h2>
         <p className="text-sm text-muted-foreground mb-4">Log a free workout or take a recovery day.</p>
         <div className="flex gap-3">
-          <Button className="flex-1" onClick={onQuickLog}>Start Workout</Button>
+          <Button className="flex-1" onClick={onStartFree}>Plan Workout</Button>
           <Button variant="outline" className="flex-1" onClick={onProgram}>View Program</Button>
         </div>
       </div>
@@ -883,4 +930,92 @@ function getPersonalizedInsight(
 
   if (insights.length === 0) return "Stay consistent, trust the process, and the results will follow."
   return insights[Math.floor(Math.random() * insights.length)]
+}
+
+// ─── Draft & Scheduled Cards ─────────────────────────────────────────────────
+
+function ResumeDraftCard({ workout, onResume }: { workout: Workout; onResume: () => void }) {
+  const editedAgo = useMemo(() => {
+    if (!workout.lastEditedAt) return null
+    const diffMs = Date.now() - new Date(workout.lastEditedAt).getTime()
+    const mins = Math.floor(diffMs / 60_000)
+    if (mins < 1) return 'just now'
+    if (mins < 60) return `${mins}m ago`
+    const hours = Math.floor(mins / 60)
+    if (hours < 24) return `${hours}h ago`
+    const days = Math.floor(hours / 24)
+    return `${days}d ago`
+  }, [workout.lastEditedAt])
+
+  return (
+    <motion.button
+      layout
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.25 }}
+      onClick={onResume}
+      className="w-full text-left rounded-2xl overflow-hidden relative bg-card border border-primary/30 active:scale-[0.99] transition-transform"
+    >
+      <div className="absolute inset-0 bg-gradient-to-br from-primary/10 via-transparent to-transparent pointer-events-none" />
+      <div className="relative z-10 p-4 flex items-center gap-3">
+        <div className="h-10 w-10 rounded-xl bg-primary/15 flex items-center justify-center shrink-0">
+          <svg viewBox="0 0 24 24" className="h-5 w-5 text-primary" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" /></svg>
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="text-[10px] uppercase tracking-widest text-primary font-semibold">Resume planning</p>
+          <p className="text-sm font-semibold text-foreground truncate">
+            {workout.name || 'Untitled draft'}
+          </p>
+          {editedAgo && <p className="text-xs text-muted-foreground">Edited {editedAgo}</p>}
+        </div>
+        <svg viewBox="0 0 24 24" className="h-4 w-4 text-muted-foreground shrink-0" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M9 18l6-6-6-6" /></svg>
+      </div>
+    </motion.button>
+  )
+}
+
+function ReadyToGoList({ workouts, onStart, onEdit }: {
+  workouts: Workout[]
+  onStart: (id: string) => void
+  onEdit: (id: string) => void
+}) {
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-widest">Ready to go</CardTitle>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-2">
+        {workouts.map(w => {
+          const sched = new Date(w.scheduledDate)
+          const today = new Date(); today.setHours(0, 0, 0, 0)
+          const isToday = sched.toDateString() === new Date().toDateString()
+          const isTomorrow = sched.toDateString() === new Date(Date.now() + 86400000).toDateString()
+          const label = isToday ? 'Today' : isTomorrow ? 'Tomorrow' : formatDate(sched, 'short')
+          return (
+            <motion.div
+              key={w.id}
+              layout
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="flex items-center gap-3 rounded-xl bg-secondary/50 border border-border/30 p-3"
+            >
+              <div className="min-w-0 flex-1">
+                <p className="text-[10px] uppercase tracking-widest text-muted-foreground">{label}</p>
+                <p className="text-sm font-semibold text-foreground truncate">{w.name || 'Workout'}</p>
+              </div>
+              <button
+                onClick={() => onEdit(w.id)}
+                className="h-9 px-3 rounded-lg text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+              >
+                Edit
+              </button>
+              <Button size="sm" onClick={() => onStart(w.id)}>
+                {isToday ? 'Start' : 'View'}
+              </Button>
+            </motion.div>
+          )
+        })}
+      </CardContent>
+    </Card>
+  )
 }

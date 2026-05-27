@@ -353,6 +353,7 @@ async function generateWeekWorkouts(
       scheduledDate,
       completedAt: null,
       status: 'planned',
+      lastEditedAt: new Date(),
       name: template.name,
       totalDuration: template.duration,
       coachingNotes: [],

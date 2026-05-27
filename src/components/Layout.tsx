@@ -1,5 +1,8 @@
 import { type ReactNode } from 'react'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
+import { useLiveQuery } from 'dexie-react-hooks'
+import { motion } from 'framer-motion'
+import { getCurrentUser, getDraftWorkout } from '@/db'
 import { cn } from '@/lib/utils'
 
 interface LayoutProps {
@@ -10,9 +13,17 @@ export function Layout({ children }: LayoutProps) {
   const location = useLocation()
   const navigate = useNavigate()
 
-  // Hide nav during workout execution and quick log
+  const user = useLiveQuery(() => getCurrentUser(), [])
+  const draft = useLiveQuery(
+    () => user ? getDraftWorkout(user.id) : Promise.resolve(undefined),
+    [user?.id]
+  )
+  const hasDraft = !!draft
+
+  // Hide nav during workout execution and planning.
   const hideNav =
-    location.pathname.startsWith('/workout/') || location.pathname === '/quick-log'
+    location.pathname.startsWith('/workout/') ||
+    location.pathname.startsWith('/plan')
 
   return (
     <div className="flex min-h-screen flex-col bg-background safe-area-inset">
@@ -29,20 +40,23 @@ export function Layout({ children }: LayoutProps) {
             <NavItem to="/" icon={HomeIcon} label="Today" />
             <NavItem to="/program" icon={CalendarIcon} label="Program" />
 
-            {/* Center Quick Log FAB */}
+            {/* Center Plan FAB */}
             <div className="relative -mt-5">
               <button
-                onClick={() => navigate('/quick-log')}
+                onClick={() => navigate('/plan')}
                 className={cn(
-                  'flex h-14 w-14 items-center justify-center rounded-full',
+                  'relative flex h-14 w-14 items-center justify-center rounded-full',
                   'bg-gradient-to-br from-primary to-[#3354DD]',
                   'shadow-glow transition-all duration-200',
                   'hover:scale-105 hover:shadow-[0_0_28px_rgba(67,97,238,0.65)]',
                   'active:scale-95'
                 )}
-                aria-label="Start Quick Workout"
+                aria-label={hasDraft ? 'Resume drafted workout' : 'Plan a workout'}
               >
                 <PlusIcon className="h-7 w-7 text-white" />
+                {hasDraft && (
+                  <span className="absolute -top-0.5 -right-0.5 h-3.5 w-3.5 rounded-full bg-accent-green border-2 border-card animate-pulse-slow" aria-hidden />
+                )}
               </button>
             </div>
 
@@ -68,15 +82,22 @@ function NavItem({ to, icon: Icon, label }: NavItemProps) {
       end={to === '/'}
       className={({ isActive }) =>
         cn(
-          'flex flex-col items-center gap-0.5 px-4 py-3 text-xs font-medium transition-colors touch-target',
+          'relative flex flex-col items-center gap-0.5 px-4 py-3 text-xs font-medium transition-colors touch-target',
           isActive ? 'text-primary' : 'text-muted-foreground hover:text-foreground'
         )
       }
     >
       {({ isActive }) => (
         <>
+          {isActive && (
+            <motion.div
+              layoutId="nav-indicator"
+              className="absolute top-0 left-1/2 -translate-x-1/2 h-0.5 w-8 rounded-full bg-primary"
+              transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+            />
+          )}
           <Icon className={cn('h-5 w-5 transition-transform', isActive && 'scale-110')} />
-          <span className={cn('text-[10px]', isActive && 'text-primary')}>{label}</span>
+          <span className={cn('text-[10px]', isActive && 'text-primary font-semibold')}>{label}</span>
         </>
       )}
     </NavLink>

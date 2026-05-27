@@ -18,6 +18,18 @@ export async function initializeDatabase(): Promise<void> {
     await db.exercises.bulkAdd(EXERCISE_LIBRARY)
     console.log(`Seeded ${EXERCISE_LIBRARY.length} exercises`)
   }
+
+  // One-time cleanup: drop the legacy QuickLog localStorage session. Drafts now
+  // live in Dexie via createDraftWorkout / getDraftWorkout.
+  try {
+    const flag = 'ql_session_cleared_v5'
+    if (typeof localStorage !== 'undefined' && !localStorage.getItem(flag)) {
+      localStorage.removeItem('ql_session')
+      localStorage.setItem(flag, '1')
+    }
+  } catch {
+    // Storage unavailable (private mode / strict iframes) — fine to skip.
+  }
 }
 
 /**
@@ -39,7 +51,6 @@ export async function clearUserData(): Promise<void> {
       db.coachingInsights,
       db.liftRecords,
       db.userAchievements,
-      db.quickLogEntries,
       db.dailyCheckIns,
       db.customExercises,
     ],
@@ -57,7 +68,6 @@ export async function clearUserData(): Promise<void> {
         db.coachingInsights.clear(),
         db.liftRecords.clear(),
         db.userAchievements.clear(),
-        db.quickLogEntries.clear(),
         db.dailyCheckIns.clear(),
         db.customExercises.clear(),
       ])
@@ -82,7 +92,6 @@ export async function exportUserData(): Promise<string> {
     coachingInsights: await db.coachingInsights.toArray(),
     liftRecords: await db.liftRecords.toArray(),
     userAchievements: await db.userAchievements.toArray(),
-    quickLogEntries: await db.quickLogEntries.toArray(),
     dailyCheckIns: await db.dailyCheckIns.toArray(),
     customExercises: await db.customExercises.toArray(),
     exportedAt: new Date().toISOString(),

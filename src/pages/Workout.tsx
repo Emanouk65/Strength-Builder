@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import {
@@ -9,6 +9,7 @@ import {
   checkTimeBasedAchievements,
   checkIronWillAchievement,
   getBestLift,
+  promoteToInProgress,
 } from '@/db'
 import { Button, Card, CardContent, CardHeader, CardTitle, Badge, Input, Slider } from '@/components/ui'
 import { cn, getRPEColor, generateId } from '@/lib/utils'
@@ -36,10 +37,17 @@ export function Workout() {
     [workoutId]
   )
 
+  // Guard against re-firing the status flip on every live-query re-emit.
+  // Without this, the very update below triggers a re-fetch → re-render →
+  // another update call, which can race or worse, repeatedly write the same row.
+  const promotedRef = useRef<string | null>(null)
   useEffect(() => {
-    if (workoutData && workoutData.status === 'planned') {
-      db.workouts.update(workoutData.id, { status: 'in_progress' })
-    }
+    if (!workoutData) return
+    const s = workoutData.status
+    if (s !== 'planned' && s !== 'draft') return
+    if (promotedRef.current === workoutData.id) return
+    promotedRef.current = workoutData.id
+    promoteToInProgress(workoutData.id)
   }, [workoutData])
 
   if (!workoutId) {
@@ -817,27 +825,14 @@ function WorkoutSummary({
 }) {
   const completedDate = workout.completedAt ? new Date(workout.completedAt) : null
 
-  const quickLogEntries = useLiveQuery(
-    async () => {
-      if (workout.workoutType !== 'quick_log') return null
-      return db.quickLogEntries.where('workoutId').equals(workout.id).sortBy('order')
-    },
-    [workout.id, workout.workoutType]
-  )
-
   const hasBlockExercises = workout.blocks.some(block =>
     block.exercises.some(ex => ex.sets.some(s => s.completed))
   )
 
-  const totalSets =
-    workout.blocks.reduce(
-      (acc, block) => acc + block.exercises.reduce((s, ex) => s + ex.sets.filter(s => s.completed).length, 0),
-      0
-    ) +
-    (quickLogEntries?.reduce(
-      (acc, entry) => acc + entry.sets.filter(s => s.completed || (s.weight != null && s.reps != null)).length,
-      0
-    ) || 0)
+  const totalSets = workout.blocks.reduce(
+    (acc, block) => acc + block.exercises.reduce((s, ex) => s + ex.sets.filter(s => s.completed).length, 0),
+    0
+  )
 
   return (
     <div className="min-h-screen bg-background p-4 pb-8">
@@ -942,40 +937,7 @@ function WorkoutSummary({
         </Card>
       )}
 
-      {quickLogEntries && quickLogEntries.length > 0 && (
-        <Card className="mb-4">
-          <CardHeader><CardTitle className="text-base">Exercises</CardTitle></CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {quickLogEntries.map(entry => {
-                const loggedSets = entry.sets.filter(s => s.completed || (s.weight != null && s.reps != null))
-                if (loggedSets.length === 0) return null
-                return (
-                  <div key={entry.id} className="mb-4 last:mb-0">
-                    <h4 className="font-bold text-sm mb-2">{entry.exerciseName}</h4>
-                    <div className="space-y-1">
-                      {loggedSets.map((set, index) => (
-                        <div key={index} className="flex items-center justify-between text-sm bg-secondary/40 rounded-xl px-3 py-2">
-                          <span className="text-xs text-muted-foreground font-mono">Set {index + 1}</span>
-                          <div className="flex items-center gap-3">
-                            {set.weight && <span className="font-bold">{set.weight} lbs</span>}
-                            {set.reps && <span className="text-muted-foreground">× {set.reps}</span>}
-                            {set.duration && <span>{set.duration}s</span>}
-                            {set.rpe && <span className={cn('text-xs font-mono', getRPEColor(set.rpe))}>@{set.rpe}</span>}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                    {entry.notes && <p className="text-xs text-muted-foreground mt-2 italic">{entry.notes}</p>}
-                  </div>
-                )
-              })}
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {!hasBlockExercises && (!quickLogEntries || quickLogEntries.length === 0) && (
+      {!hasBlockExercises && (
         <Card className="mb-4">
           <CardContent className="py-8 text-center">
             <p className="text-muted-foreground text-sm">No exercise data recorded</p>
