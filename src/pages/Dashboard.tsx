@@ -164,24 +164,20 @@ export function Dashboard() {
 
   return (
     <div className="flex flex-col">
-      {/* Gradient Header */}
-      <div className="gradient-header px-4 pt-12 pb-8 relative overflow-hidden">
-        {/* Decorative blobs */}
-        <div className="absolute top-0 right-0 w-48 h-48 rounded-full bg-primary/15 blur-3xl pointer-events-none" />
-        <div className="absolute bottom-0 left-0 w-32 h-32 rounded-full bg-[#7209B7]/10 blur-2xl pointer-events-none" />
-
-        <p className="text-sm text-white/70 relative z-10">{greeting}</p>
-        <h1 className="text-3xl font-black text-white mt-0.5 relative z-10">{firstName}</h1>
+      {/* Header */}
+      <div className="px-4 pt-12 pb-6 relative overflow-hidden border-b border-border/30">
+        <p className="text-sm text-muted-foreground relative z-10">{greeting}</p>
+        <h1 className="text-3xl font-black text-foreground mt-0.5 relative z-10 tracking-tight">{firstName}</h1>
 
         {/* Streak pill in header */}
         {currentStreak > 0 && (
-          <div className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/20 border border-white/30 relative z-10">
+          <div className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-secondary/60 border border-border/50 relative z-10">
             {currentStreak >= 3 ? (
               <span className="text-base animate-pulse">🔥</span>
             ) : (
               <span className="text-base">⚡</span>
             )}
-            <span className="text-sm font-bold text-white">{currentStreak} day streak</span>
+            <span className="text-sm font-bold text-foreground">{currentStreak} day streak</span>
           </div>
         )}
       </div>
@@ -402,22 +398,17 @@ function NextWorkoutCard({
     const isInProgress = nextWorkout.status === 'in_progress'
 
     return (
-      <div className="rounded-2xl overflow-hidden relative">
-        {/* Gradient background */}
-        <div className="absolute inset-0 bg-gradient-to-br from-[#1A1A2E] via-[#1e1e38] to-[#1A1A2E]" />
-        <div className="absolute inset-0 bg-gradient-to-tr from-primary/20 to-transparent" />
-        <div className="absolute top-0 right-0 w-40 h-40 rounded-full bg-primary/10 blur-3xl" />
-
+      <div className="rounded-2xl overflow-hidden relative bg-card border border-border/50 shadow-card">
         <div className="relative z-10 p-5">
           <div className="flex items-start justify-between mb-4">
             <div>
-              <p className="text-xs font-medium text-primary uppercase tracking-widest">
+              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">
                 {isInProgress ? 'In Progress' : isToday ? "Today's Workout" : formatDate(nextWorkout.scheduledDate, 'long')}
               </p>
-              <h2 className="text-xl font-black text-foreground mt-1">{nextWorkout.name}</h2>
+              <h2 className="text-xl font-bold text-foreground mt-1 tracking-tight">{nextWorkout.name}</h2>
             </div>
             {nextWorkout.totalDuration ? (
-              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/5 border border-white/10">
+              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-secondary/60 border border-border/40">
                 <svg className="w-3 h-3 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
@@ -440,14 +431,11 @@ function NextWorkoutCard({
 
   // No scheduled workout
   return (
-    <div className="rounded-2xl overflow-hidden relative">
-      <div className="absolute inset-0 bg-gradient-to-br from-[#1A1A2E] to-[#1e1e38]" />
-      <div className="absolute inset-0 bg-gradient-to-tr from-[#7209B7]/10 to-transparent" />
-
+    <div className="rounded-2xl overflow-hidden relative bg-card border border-border/50 shadow-card">
       <div className="relative z-10 p-5">
-        <p className="text-xs font-medium text-muted-foreground uppercase tracking-widest mb-1">Free Day</p>
-        <h2 className="text-xl font-black text-foreground mb-1">No Scheduled Workout</h2>
-        <p className="text-sm text-muted-foreground mb-4">Log a free workout or take a recovery day.</p>
+        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mb-1">Free Day</p>
+        <h2 className="text-xl font-bold text-foreground mb-1 tracking-tight">No Scheduled Workout</h2>
+        <p className="text-sm text-muted-foreground mb-4">Plan a workout or take a recovery day.</p>
         <div className="flex gap-3">
           <Button className="flex-1" onClick={onStartFree}>Plan Workout</Button>
           <Button variant="outline" className="flex-1" onClick={onProgram}>View Program</Button>
@@ -564,7 +552,7 @@ function WeeklyStatsRow({
     { label: 'Workouts', value: stats.workoutsCompleted, color: 'text-primary' },
     { label: 'Minutes', value: stats.totalMinutes, color: 'text-foreground' },
     { label: 'Sets', value: stats.totalSets, color: 'text-foreground' },
-    { label: 'Avg Perf', value: stats.avgPerformance > 0 ? stats.avgPerformance.toFixed(1) : '–', color: 'text-[#00F5D4]' },
+    { label: 'Avg Perf', value: stats.avgPerformance > 0 ? stats.avgPerformance.toFixed(1) : '–', color: 'text-foreground' },
   ]
 
   return (
@@ -602,7 +590,7 @@ function QuickActionCard({
 }) {
   const accentClasses = {
     primary: 'bg-primary/10 text-primary',
-    green: 'bg-[#00F5D4]/10 text-[#00F5D4]',
+    green: 'bg-secondary/60 text-foreground',
   }
 
   return (

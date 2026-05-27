@@ -75,27 +75,29 @@
     padding-bottom: env(safe-area-inset-bottom);
   }
 
-  /* Frosted glass card surface */
+  /* Frosted glass card surface — monochrome */
   .glass {
-    background: rgba(26, 26, 46, 0.7);
+    background: rgba(15, 15, 15, 0.7);
     backdrop-filter: blur(16px);
     -webkit-backdrop-filter: blur(16px);
-    border: 1px solid rgba(255, 255, 255, 0.07);
+    border: 1px solid rgba(255, 255, 255, 0.06);
   }
 
-  /* Premium gradient header */
+  /* Header background — flat near-black with subtle top sheen */
   .gradient-header {
-    background: linear-gradient(135deg, #4361EE 0%, #7209B7 100%);
+    background: linear-gradient(180deg, #0F0F0F 0%, #000000 100%);
   }
 
-  /* Gradient primary button */
+  /* Primary button — flat white */
   .btn-gradient {
-    background: linear-gradient(135deg, #4361EE 0%, #3354DD 100%);
+    background: #FFFFFF;
+    color: #000000;
   }
 
-  /* Accent green gradient */
+  /* Accent surface — subtle white-on-dark */
   .gradient-green {
-    background: linear-gradient(135deg, #00F5D4 0%, #00C853 100%);
+    background: linear-gradient(135deg, #1A1A1A 0%, #0F0F0F 100%);
+    border: 1px solid rgba(255, 255, 255, 0.1);
   }
 }
 

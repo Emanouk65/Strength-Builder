@@ -192,7 +192,7 @@ export function Workout() {
           <div
             className={cn(
               'h-full rounded-full transition-all duration-500',
-              progress === 100 ? 'bg-success' : 'bg-gradient-to-r from-primary to-[#7209B7]'
+              progress === 100 ? 'bg-foreground' : 'bg-foreground/80'
             )}
             style={{ width: `${Math.max(progress, totalSets > 0 ? (totalSetsCompleted / totalSets) * 100 : 0)}%` }}
           />
@@ -271,7 +271,7 @@ export function Workout() {
           className={cn(
             'w-full transition-all text-base',
             isCurrentBlockComplete
-              ? 'bg-gradient-to-r from-success to-[#00A844] shadow-glow-success text-white border-0'
+              ? 'bg-foreground text-background hover:bg-foreground/90 border-0'
               : ''
           )}
           size="lg"

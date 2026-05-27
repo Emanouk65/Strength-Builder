@@ -226,8 +226,19 @@ export function Plan() {
     navigate('/')
   }, [workoutId, navigate])
 
-  // Loading
-  if (bootstrapping || !workout || !user) {
+  // Wait for the full chain to resolve before deciding empty vs populated.
+  // Otherwise the page briefly flashes "Build your workout" on a draft that
+  // already has exercises, because instances is undefined while loading.
+  const dataLoading =
+    bootstrapping ||
+    !user ||
+    !workout ||
+    blocks === undefined ||
+    instances === undefined ||
+    sets === undefined ||
+    (exerciseIds.length > 0 && exercises === undefined)
+
+  if (dataLoading) {
     return (
       <div className="flex h-screen items-center justify-center bg-background">
         <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
@@ -235,7 +246,7 @@ export function Plan() {
     )
   }
 
-  const isEmpty = !instances || instances.length === 0
+  const isEmpty = instances.length === 0
   const isDraft = workout.status === 'draft'
 
   return (

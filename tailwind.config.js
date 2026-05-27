@@ -7,45 +7,45 @@ export default {
   theme: {
     extend: {
       colors: {
-        // Premium dark theme – deep charcoal / midnight
-        background: '#0D0D0D',
+        // Monochrome dark theme — pure black/white with subtle grays
+        background: '#000000',
         foreground: '#FFFFFF',
-        card: '#1A1A2E',
+        card: '#0F0F0F',
         'card-foreground': '#FFFFFF',
-        // Electric blue primary
-        primary: '#4361EE',
-        'primary-foreground': '#FFFFFF',
-        // Secondary surfaces
-        secondary: '#252540',
+        // Primary = white (used for CTAs and active states)
+        primary: '#FFFFFF',
+        'primary-foreground': '#000000',
+        // Secondary surfaces (subtle steps of gray)
+        secondary: '#1A1A1A',
         'secondary-foreground': '#FFFFFF',
-        muted: '#1E1E3A',
-        'muted-foreground': '#8E8E93',
-        // Accent
-        accent: '#4361EE',
-        'accent-foreground': '#FFFFFF',
-        // Extended accent palette
-        'accent-green': '#00F5D4',
-        'accent-orange': '#FF6B35',
-        'accent-purple': '#7209B7',
+        muted: '#141414',
+        'muted-foreground': '#8A8A8A',
+        // Accent (kept = white for monochrome)
+        accent: '#FFFFFF',
+        'accent-foreground': '#000000',
+        // Extended accents — kept for legacy refs, all unified to white/grays
+        'accent-green': '#FFFFFF',
+        'accent-orange': '#FFFFFF',
+        'accent-purple': '#FFFFFF',
         // Achievement / highlights
-        achievement: '#FF6B35',
-        'achievement-alt': '#7209B7',
-        streak: '#4361EE',
-        // Semantic
-        destructive: '#FF453A',
+        achievement: '#FFFFFF',
+        'achievement-alt': '#A0A0A0',
+        streak: '#FFFFFF',
+        // Semantic — red kept for destructive (universal danger signal)
+        destructive: '#EF4444',
         'destructive-foreground': '#FFFFFF',
-        success: '#00C853',
-        warning: '#FF6B35',
+        success: '#FFFFFF',
+        warning: '#FBBF24',
         // Borders / inputs
-        border: '#2A2A4A',
-        input: '#1E1E3A',
-        ring: '#4361EE',
-        // RPE training states
-        'rpe-low': '#00C853',
-        'rpe-moderate': '#FFB300',
-        'rpe-high': '#FF6B35',
-        'rpe-max': '#FF453A',
-        'pain-signal': '#FF453A',
+        border: '#262626',
+        input: '#141414',
+        ring: '#FFFFFF',
+        // RPE training states — graded grayscale + red for max
+        'rpe-low': '#A0A0A0',
+        'rpe-moderate': '#C0C0C0',
+        'rpe-high': '#E0E0E0',
+        'rpe-max': '#EF4444',
+        'pain-signal': '#EF4444',
       },
       fontFamily: {
         sans: ['Inter', '-apple-system', 'BlinkMacSystemFont', 'system-ui', 'sans-serif'],
@@ -67,13 +67,13 @@ export default {
         '3xl': '1.5rem',
       },
       boxShadow: {
-        'glow': '0 0 20px rgba(67, 97, 238, 0.45)',
-        'glow-sm': '0 0 10px rgba(67, 97, 238, 0.25)',
-        'glow-green': '0 0 16px rgba(0, 245, 212, 0.35)',
-        'glow-success': '0 0 12px rgba(0, 200, 83, 0.4)',
-        'achievement': '0 0 20px rgba(255, 107, 53, 0.45)',
-        'card': '0 4px 24px rgba(0, 0, 0, 0.5)',
-        'card-hover': '0 8px 32px rgba(0, 0, 0, 0.65)',
+        'glow': '0 0 0 1px rgba(255, 255, 255, 0.12), 0 8px 28px rgba(0, 0, 0, 0.55)',
+        'glow-sm': '0 0 0 1px rgba(255, 255, 255, 0.08), 0 4px 16px rgba(0, 0, 0, 0.45)',
+        'glow-green': '0 0 0 1px rgba(255, 255, 255, 0.12), 0 8px 28px rgba(0, 0, 0, 0.55)',
+        'glow-success': '0 0 0 1px rgba(255, 255, 255, 0.18), 0 4px 16px rgba(0, 0, 0, 0.45)',
+        'achievement': '0 0 0 1px rgba(255, 255, 255, 0.18), 0 8px 28px rgba(0, 0, 0, 0.55)',
+        'card': '0 1px 0 0 rgba(255, 255, 255, 0.04) inset, 0 4px 24px rgba(0, 0, 0, 0.5)',
+        'card-hover': '0 1px 0 0 rgba(255, 255, 255, 0.08) inset, 0 8px 32px rgba(0, 0, 0, 0.65)',
       },
       animation: {
         'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
@@ -82,12 +82,12 @@ export default {
       },
       keyframes: {
         glow: {
-          '0%': { boxShadow: '0 0 5px rgba(67, 97, 238, 0.2)' },
-          '100%': { boxShadow: '0 0 20px rgba(67, 97, 238, 0.55)' },
+          '0%':   { boxShadow: '0 0 0 1px rgba(255, 255, 255, 0.08)' },
+          '100%': { boxShadow: '0 0 0 1px rgba(255, 255, 255, 0.22)' },
         },
         float: {
           '0%, 100%': { transform: 'translateY(0)' },
-          '50%': { transform: 'translateY(-4px)' },
+          '50%':      { transform: 'translateY(-4px)' },
         },
       },
     },

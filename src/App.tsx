@@ -29,6 +29,7 @@ function AnimatedRoutes() {
         animate={pageMotion.animate}
         exit={pageMotion.exit}
         transition={pageMotion.transition}
+        className="min-h-screen bg-background"
       >
         <Routes location={location} key={location.pathname}>
           <Route path="/" element={<Dashboard />} />

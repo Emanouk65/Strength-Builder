@@ -18,8 +18,8 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(
 
     const variants = {
       default:
-        'bg-gradient-to-br from-primary to-[#3354DD] text-white shadow-glow-sm ' +
-        'hover:shadow-glow hover:brightness-110',
+        'bg-primary text-primary-foreground shadow-glow-sm ' +
+        'hover:bg-primary/90 active:bg-primary/85',
       secondary:
         'bg-secondary text-secondary-foreground hover:bg-secondary/80 active:bg-secondary/70',
       destructive:

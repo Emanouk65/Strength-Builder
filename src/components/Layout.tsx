@@ -46,16 +46,16 @@ export function Layout({ children }: LayoutProps) {
                 onClick={() => navigate('/plan')}
                 className={cn(
                   'relative flex h-14 w-14 items-center justify-center rounded-full',
-                  'bg-gradient-to-br from-primary to-[#3354DD]',
+                  'bg-primary text-primary-foreground',
                   'shadow-glow transition-all duration-200',
-                  'hover:scale-105 hover:shadow-[0_0_28px_rgba(67,97,238,0.65)]',
+                  'hover:scale-105 hover:shadow-[0_0_24px_rgba(255,255,255,0.25)]',
                   'active:scale-95'
                 )}
                 aria-label={hasDraft ? 'Resume drafted workout' : 'Plan a workout'}
               >
-                <PlusIcon className="h-7 w-7 text-white" />
+                <PlusIcon className="h-7 w-7" />
                 {hasDraft && (
-                  <span className="absolute -top-0.5 -right-0.5 h-3.5 w-3.5 rounded-full bg-accent-green border-2 border-card animate-pulse-slow" aria-hidden />
+                  <span className="absolute -top-0.5 -right-0.5 h-3.5 w-3.5 rounded-full bg-foreground border-2 border-background animate-pulse-slow" aria-hidden />
                 )}
               </button>
             </div>
