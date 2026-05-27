@@ -325,6 +325,8 @@ export interface ExerciseInstance {
   notes: string
   substituteFor: string | null // Original exercise ID if this is a substitution
   substitutionReason: string | null
+  /** Exercises sharing the same supersetGroupId form a superset (up to 5 members). */
+  supersetGroupId: string | null
 }
 
 // ----------------------------------------------------------------------------

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
+import { motion, AnimatePresence } from 'framer-motion'
 import {
   db,
   getWorkoutWithDetails,
@@ -11,9 +12,9 @@ import {
   getBestLift,
   promoteToInProgress,
 } from '@/db'
-import { Button, Card, CardContent, CardHeader, CardTitle, Badge, Input, Slider } from '@/components/ui'
-import { cn, getRPEColor, generateId } from '@/lib/utils'
-import { BLOCK_CONFIG, RPE_DESCRIPTIONS, ACHIEVEMENTS, getStreakMessage } from '@/lib/constants'
+import { Button, Badge, Input, Slider, NumberStepper } from '@/components/ui'
+import { cn, generateId } from '@/lib/utils'
+import { BLOCK_CONFIG, RPE_DESCRIPTIONS, ACHIEVEMENTS } from '@/lib/constants'
 import type { BlockType, SetInstance, WorkoutReflection, AchievementId } from '@/lib/types'
 
 const SET_COMPLETE_MESSAGES = [
@@ -74,7 +75,7 @@ export function Workout() {
       <ReflectionForm
         workoutId={workoutData.id}
         workoutName={workoutData.name}
-        onComplete={() => navigate(`/check-in?workoutId=${workoutData.id}&returnTo=/`)}
+        onComplete={() => navigate('/', { replace: true })}
       />
     )
   }
@@ -167,23 +168,39 @@ export function Workout() {
           <button
             onClick={handleExit}
             className="w-9 h-9 rounded-xl bg-secondary flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors"
+            aria-label="Exit workout"
           >
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
               <path d="M18 6 6 18M6 6l12 12" />
             </svg>
           </button>
 
-          <div className="text-center">
-            <p className="text-xs font-semibold text-muted-foreground">{workoutData.name}</p>
+          <div className="text-center min-w-0 px-2 flex-1">
+            <p className="text-xs font-semibold text-muted-foreground truncate">{workoutData.name}</p>
             <p className="text-sm font-bold">
               Block {currentBlockIndex + 1} / {totalBlocks}
             </p>
           </div>
 
-          {/* Set counter */}
-          <div className="flex items-center gap-1 bg-primary/10 px-3 py-1.5 rounded-full">
-            <span className="text-sm font-black text-primary">{totalSetsCompleted}</span>
-            <span className="text-xs text-muted-foreground">/{totalSets}</span>
+          <div className="flex items-center gap-2">
+            {/* Edit workout (mid-session adjustments) */}
+            <button
+              onClick={() => navigate(`/plan/${workoutData.id}`)}
+              className="w-9 h-9 rounded-xl bg-secondary flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors"
+              aria-label="Edit workout"
+              title="Add/remove exercises or adjust sets"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+              </svg>
+            </button>
+
+            {/* Set counter */}
+            <div className="flex items-center gap-1 bg-secondary/60 px-3 py-1.5 rounded-full">
+              <span className="text-sm font-bold text-foreground">{totalSetsCompleted}</span>
+              <span className="text-xs text-muted-foreground">/{totalSets}</span>
+            </div>
           </div>
         </div>
 
@@ -245,18 +262,45 @@ export function Workout() {
             </div>
           </div>
 
-          {/* Exercises */}
+          {/* Exercises (with superset visual grouping) */}
           <div className="p-4">
             {currentBlock.exercises.length > 0 ? (
               <div className="space-y-5">
-                {currentBlock.exercises.map((exerciseInstance, index) => (
-                  <ExerciseBlock
-                    key={exerciseInstance.id}
-                    exerciseInstance={exerciseInstance}
-                    isLast={index === currentBlock.exercises.length - 1}
-                    userId={workoutData.userId}
-                  />
-                ))}
+                {groupExercisesBySuperset(currentBlock.exercises).map((g, gi, all) => {
+                  const isLastGroup = gi === all.length - 1
+                  if (g.kind === 'solo') {
+                    return (
+                      <ExerciseBlock
+                        key={g.instance.id}
+                        exerciseInstance={g.instance}
+                        isLast={isLastGroup}
+                        userId={workoutData.userId}
+                      />
+                    )
+                  }
+                  return (
+                    <div key={g.groupId} className="rounded-2xl bg-foreground/[0.03] border border-foreground/15 p-3">
+                      <div className="flex items-center gap-2 px-1 pb-2">
+                        <span className="text-[10px] uppercase tracking-widest font-semibold text-foreground/70">
+                          Superset · {g.members.length} exercises
+                        </span>
+                        <span className="text-[10px] text-muted-foreground">
+                          Alternate sets between exercises
+                        </span>
+                      </div>
+                      <div className="space-y-5">
+                        {g.members.map((m, mi) => (
+                          <ExerciseBlock
+                            key={m.id}
+                            exerciseInstance={m}
+                            isLast={mi === g.members.length - 1}
+                            userId={workoutData.userId}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  )
+                })}
               </div>
             ) : (
               <div className="py-8 text-center">
@@ -394,14 +438,22 @@ function ExerciseBlock({
         </p>
       )}
 
-      {/* Celebration toast */}
-      {celebrationMessage && (
-        <div className="absolute top-0 right-0 animate-slide-up z-10">
-          <span className="text-sm font-black text-success bg-success/15 border border-success/30 px-3 py-1 rounded-full">
-            {celebrationMessage}
-          </span>
-        </div>
-      )}
+      {/* Celebration toast — floats from bottom, away from exercise name */}
+      <AnimatePresence>
+        {celebrationMessage && (
+          <motion.div
+            initial={{ opacity: 0, y: 20, scale: 0.9 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ duration: 0.22 }}
+            className="fixed bottom-24 inset-x-0 z-30 flex justify-center pointer-events-none"
+          >
+            <span className="text-sm font-semibold text-background bg-foreground px-4 py-2 rounded-full shadow-card">
+              {celebrationMessage}
+            </span>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <div className="space-y-2">
         {exerciseInstance.sets.map((set, index) => (
@@ -411,6 +463,7 @@ function ExerciseBlock({
             setNumber={index + 1}
             isExpanded={expandedSet === index}
             onExpand={() => setExpandedSet(expandedSet === index ? null : index)}
+            onPatch={async (patch) => { await db.setInstances.update(set.id, patch) }}
             onComplete={data => handleSetComplete(set, data)}
             justCompleted={celebratingSet === index}
             prWeight={prWeight}
@@ -436,6 +489,7 @@ function WorkoutSetRow({
   setNumber,
   isExpanded,
   onExpand,
+  onPatch,
   onComplete,
   justCompleted = false,
   prWeight,
@@ -444,15 +498,18 @@ function WorkoutSetRow({
   setNumber: number
   isExpanded: boolean
   onExpand: () => void
+  /** Partial autosave — writes a field without marking the set complete. */
+  onPatch: (patch: Partial<SetInstance>) => void | Promise<void>
   onComplete: (data: Partial<SetInstance>) => void
   justCompleted?: boolean
   prWeight?: number | null
 }) {
-  const [weight, setWeight] = useState(set.actualWeight ?? set.targetWeight ?? 0)
-  const [reps, setReps] = useState(set.actualReps ?? set.targetReps ?? 0)
-  const [rpe, setRpe] = useState(set.actualRPE ?? set.targetRPE ?? 7)
+  // Display values fall back through actual → target → empty.
+  const weight = set.actualWeight ?? set.targetWeight
+  const reps = set.actualReps ?? set.targetReps
+  const rpe = set.actualRPE ?? set.targetRPE
 
-  const isPRWeight = prWeight && weight > prWeight
+  const isPRWeight = prWeight != null && weight != null && weight > prWeight
 
   if (set.completed) {
     return (
@@ -460,30 +517,21 @@ function WorkoutSetRow({
         className={cn(
           'flex items-center justify-between rounded-xl px-3 py-2.5 transition-all duration-300',
           justCompleted
-            ? 'bg-success/15 border border-success/30 animate-set-complete'
+            ? 'bg-foreground/10 border border-foreground/25 animate-set-complete'
             : 'bg-secondary/40 border border-transparent'
         )}
       >
         <span className="text-sm font-mono text-muted-foreground">Set {setNumber}</span>
         <div className="flex items-center gap-3 text-sm">
-          <span className={cn('font-bold', justCompleted && 'text-success')}>{set.actualWeight} lbs</span>
-          <span className={cn('font-bold', justCompleted && 'text-success')}>× {set.actualReps}</span>
-          <span className={cn('text-xs font-mono', getRPEColor(set.actualRPE || 0))}>
-            @{set.actualRPE}
-          </span>
-          <div className={cn(
-            'w-6 h-6 rounded-lg flex items-center justify-center',
-            justCompleted ? 'bg-success text-white animate-bounce-in' : 'text-success'
-          )}>
-            {justCompleted ? (
-              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
-                <polyline className="animate-checkmark" points="20 6 9 17 4 12" />
-              </svg>
-            ) : (
-              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round">
-                <polyline points="20 6 9 17 4 12" />
-              </svg>
-            )}
+          <span className="font-semibold text-foreground">{set.actualWeight ?? '—'} lbs</span>
+          <span className="text-foreground/70">× {set.actualReps ?? '—'}</span>
+          {set.actualRPE != null && (
+            <span className="text-xs font-mono text-muted-foreground">@{set.actualRPE}</span>
+          )}
+          <div className="w-6 h-6 rounded-lg flex items-center justify-center text-foreground">
+            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round">
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
           </div>
         </div>
       </div>
@@ -494,13 +542,15 @@ function WorkoutSetRow({
     return (
       <button
         onClick={onExpand}
-        className="w-full flex items-center justify-between rounded-xl bg-secondary/50 border border-border/60 px-3 py-2.5 text-left hover:border-primary/50 hover:bg-secondary/70 transition-all duration-150 active:scale-[0.98]"
+        className="w-full flex items-center justify-between rounded-xl bg-secondary/50 border border-border/60 px-3 py-2.5 text-left hover:border-foreground/30 hover:bg-secondary/70 transition-all duration-150 active:scale-[0.98]"
       >
         <span className="text-sm font-bold text-foreground">Set {setNumber}</span>
         <div className="flex items-center gap-3 text-sm">
-          <span className="font-semibold text-foreground/80">{set.targetWeight} lbs</span>
-          <span className="text-foreground/60">× {set.targetReps}</span>
-          <span className={cn('text-xs font-semibold', getRPEColor(set.targetRPE ?? 7))}>@{set.targetRPE}</span>
+          <span className="font-semibold text-foreground/80">{weight ?? '—'} lbs</span>
+          <span className="text-foreground/60">× {reps ?? '—'}</span>
+          {rpe != null && (
+            <span className="text-xs font-semibold text-muted-foreground">@{rpe}</span>
+          )}
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="text-muted-foreground">
             <path d="m6 9 6 6 6-6" />
           </svg>
@@ -510,81 +560,92 @@ function WorkoutSetRow({
   }
 
   return (
-    <div className="rounded-2xl border-2 border-primary/40 bg-card shadow-sm animate-slide-up overflow-hidden">
-      {/* Header row with target hint */}
-      <div className="flex items-center justify-between px-3 pt-3 pb-2 border-b border-border/30">
-        <span className="text-xs font-black text-foreground uppercase tracking-wide">Set {setNumber}</span>
+    <div className="rounded-2xl border border-foreground/25 bg-card shadow-card animate-slide-up overflow-hidden">
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 pt-3 pb-2 border-b border-border/30">
+        <span className="text-xs font-bold text-foreground uppercase tracking-wider">Set {setNumber}</span>
         {(set.targetWeight || set.targetReps) ? (
-          <span className="text-[10px] font-semibold text-muted-foreground bg-secondary/70 px-2 py-1 rounded-lg">
-            Target: {set.targetWeight} lbs × {set.targetReps} @{set.targetRPE}
+          <span className="text-[10px] font-mono text-muted-foreground">
+            Target {set.targetWeight ?? '—'} × {set.targetReps ?? '—'}{set.targetRPE != null && ` @${set.targetRPE}`}
           </span>
         ) : null}
       </div>
 
       {isPRWeight && (
-        <div className="bg-accent-orange/15 border-b border-accent-orange/30 px-3 py-2 text-center">
-          <p className="text-xs font-black text-accent-orange animate-pr-flash">🏆 NEW PR WEIGHT — Beat Your Record!</p>
+        <div className="bg-foreground/10 border-b border-foreground/20 px-3 py-2 text-center">
+          <p className="text-xs font-bold text-foreground">🏆 NEW PR WEIGHT</p>
         </div>
       )}
 
-      {/* Single input row: Weight | × Reps | @ RPE | ✓ Done */}
-      <div className="flex items-center gap-2 px-3 py-3">
-        {/* Weight */}
-        <div className="flex items-center gap-1 flex-1 min-w-0">
-          <Input
-            type="number"
-            value={weight}
-            onChange={e => setWeight(Number(e.target.value))}
-            className="text-center font-black text-base h-11 px-1 min-w-0"
+      {/* Three labeled controls — auto-save on each change */}
+      <div className="px-4 py-4 grid grid-cols-3 gap-3">
+        <SetField label="Weight" suffix="lbs">
+          <NumberStepper
+            value={weight ?? null}
+            onChange={(v) => onPatch({ actualWeight: v })}
+            min={0}
+            max={2000}
+            step={5}
+            integer={false}
+            size="md"
+            ariaLabel="weight"
           />
-          <span className="text-[10px] font-semibold text-muted-foreground shrink-0">lbs</span>
-        </div>
-
-        <span className="text-muted-foreground font-bold text-sm shrink-0">×</span>
-
-        {/* Reps */}
-        <div className="flex-1 min-w-0">
-          <Input
-            type="number"
-            value={reps}
-            onChange={e => setReps(Number(e.target.value))}
-            className="text-center font-black text-base h-11 px-1 min-w-0 w-full"
+        </SetField>
+        <SetField label="Reps">
+          <NumberStepper
+            value={reps ?? null}
+            onChange={(v) => onPatch({ actualReps: v })}
+            min={0}
+            max={500}
+            size="md"
+            ariaLabel="reps"
           />
-        </div>
-
-        <span className="text-muted-foreground font-bold text-sm shrink-0">@</span>
-
-        {/* RPE */}
-        <div className="w-14 shrink-0">
-          <Input
-            type="number"
+        </SetField>
+        <SetField label="RPE">
+          <NumberStepper
+            value={rpe ?? null}
+            onChange={(v) => onPatch({ actualRPE: v })}
             min={1}
             max={10}
-            value={rpe}
-            onChange={e => setRpe(Number(e.target.value))}
-            className={cn('text-center font-black text-base h-11 px-1', getRPEColor(rpe))}
+            size="md"
+            ariaLabel="rpe"
           />
-        </div>
+        </SetField>
+      </div>
 
-        {/* Done checkmark button */}
+      {/* RPE description + Done */}
+      <div className="flex items-center justify-between px-4 pb-3 gap-3">
+        <p className="text-[10px] font-medium text-muted-foreground flex-1 truncate">
+          {rpe != null ? RPE_DESCRIPTIONS[rpe] : 'Set values auto-save'}
+        </p>
         <button
-          onClick={() => onComplete({ actualWeight: weight, actualReps: reps, actualRPE: rpe })}
-          className="w-11 h-11 rounded-xl bg-success flex items-center justify-center text-white shrink-0 shadow-glow-success active:scale-90 transition-transform"
-          aria-label="Log set"
+          onClick={onExpand}
+          className="text-xs font-medium text-muted-foreground hover:text-foreground transition-colors px-2 py-1"
         >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round">
-            <polyline points="20 6 9 17 4 12" />
-          </svg>
+          Close
         </button>
+        <Button
+          size="sm"
+          onClick={() => onComplete({
+            actualWeight: weight ?? set.targetWeight ?? null,
+            actualReps: reps ?? set.targetReps ?? null,
+            actualRPE: rpe ?? set.targetRPE ?? null,
+          })}
+        >
+          ✓ Done
+        </Button>
       </div>
+    </div>
+  )
+}
 
-      {/* RPE label + cancel */}
-      <div className="flex items-center justify-between px-3 pb-3">
-        <p className="text-[10px] font-semibold text-muted-foreground">{RPE_DESCRIPTIONS[rpe]}</p>
-        <button onClick={onExpand} className="text-[10px] font-semibold text-muted-foreground hover:text-foreground transition-colors px-2 py-1">
-          Cancel
-        </button>
-      </div>
+function SetField({ label, suffix, children }: { label: string; suffix?: string; children: React.ReactNode }) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <span className="text-[10px] uppercase tracking-wider font-semibold text-muted-foreground">
+        {label}{suffix && <span className="ml-1 normal-case tracking-normal text-muted-foreground/70">{suffix}</span>}
+      </span>
+      {children}
     </div>
   )
 }
@@ -602,12 +663,11 @@ function ReflectionForm({
   workoutName: string
   onComplete: () => void
 }) {
-  const [reflection, setReflection] = useState({
-    energy: 7, performance: 7, sleepQuality: 7, sleepHours: 7,
-    hydration: 7, nutrition: 7, stress: 5, motivation: 7,
-    overallSatisfaction: 7, winOfTheDay: '', struggleOfTheDay: '',
-    freeformNotes: '', painNotes: '',
-  })
+  const [overall, setOverall] = useState(7)
+  const [energy, setEnergy] = useState(7)
+  const [journal, setJournal] = useState('')
+  const [win, setWin] = useState('')
+  const [struggle, setStruggle] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [showCelebration, setShowCelebration] = useState(false)
   const [celebrationData, setCelebrationData] = useState<{
@@ -620,20 +680,20 @@ function ReflectionForm({
       id: generateId(),
       workoutId,
       completedAt: new Date(),
-      energy: reflection.energy,
-      performance: reflection.performance,
-      sleepQuality: reflection.sleepQuality,
-      sleepHours: reflection.sleepHours,
-      hydration: reflection.hydration,
-      nutrition: reflection.nutrition,
-      stress: reflection.stress,
-      motivation: reflection.motivation,
+      energy,
+      performance: overall,
+      sleepQuality: 7,
+      sleepHours: 7,
+      hydration: 7,
+      nutrition: 7,
+      stress: 5,
+      motivation: 7,
       conditioningComfort: null,
-      overallSatisfaction: reflection.overallSatisfaction,
-      painNotes: reflection.painNotes,
-      winOfTheDay: reflection.winOfTheDay,
-      struggleOfTheDay: reflection.struggleOfTheDay,
-      freeformNotes: reflection.freeformNotes,
+      overallSatisfaction: overall,
+      painNotes: '',
+      winOfTheDay: win,
+      struggleOfTheDay: struggle,
+      freeformNotes: journal,
     }
 
     await db.workoutReflections.add(reflectionData)
@@ -643,7 +703,7 @@ function ReflectionForm({
     if (user) {
       const streakAchievements = await updateStreakOnWorkoutComplete(user.id)
       const timeAchievements = await checkTimeBasedAchievements(user.id)
-      const ironWillUnlocked = await checkIronWillAchievement(user.id, reflection.energy)
+      const ironWillUnlocked = await checkIronWillAchievement(user.id, energy)
       const updatedUser = await getCurrentUser()
       setCelebrationData({
         newStreak: updatedUser?.currentStreak ?? 1,
@@ -672,46 +732,83 @@ function ReflectionForm({
     )
   }
 
+  const dateLabel = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
+
   return (
-    <div className="min-h-screen bg-background p-4 pb-8">
-      <header className="mb-6">
-        <h1 className="text-2xl font-black">Post-Workout Reflection</h1>
-        <p className="text-sm text-muted-foreground mt-1">Be honest — this data drives your programming.</p>
+    <div className="min-h-screen bg-background pb-32">
+      <header className="px-5 pt-12 pb-6">
+        <p className="text-[10px] uppercase tracking-widest text-muted-foreground">{dateLabel}</p>
+        <h1 className="text-2xl font-bold tracking-tight mt-1">Journal entry</h1>
+        <p className="text-sm text-muted-foreground mt-1">{workoutName}</p>
       </header>
 
-      <div className="space-y-4">
-        <Card>
-          <CardHeader><CardTitle className="text-base">How Are You Feeling?</CardTitle></CardHeader>
-          <CardContent className="space-y-4">
-            <Slider label="Energy Level" value={reflection.energy} onChange={v => setReflection(r => ({ ...r, energy: v }))} />
-            <Slider label="Performance" value={reflection.performance} onChange={v => setReflection(r => ({ ...r, performance: v }))} />
-            <Slider label="Overall Satisfaction" value={reflection.overallSatisfaction} onChange={v => setReflection(r => ({ ...r, overallSatisfaction: v }))} />
-          </CardContent>
-        </Card>
+      <div className="px-5 space-y-6">
+        {/* Overall feel — single dominant slider */}
+        <section>
+          <div className="flex items-baseline justify-between mb-3">
+            <h2 className="text-xs uppercase tracking-widest font-semibold text-muted-foreground">How was it?</h2>
+            <span className="text-3xl font-bold tabular-nums">{overall}<span className="text-base text-muted-foreground font-normal">/10</span></span>
+          </div>
+          <Slider value={overall} onChange={setOverall} />
+        </section>
 
-        <Card>
-          <CardHeader><CardTitle className="text-base">Recovery Factors</CardTitle></CardHeader>
-          <CardContent className="space-y-4">
-            <Slider label="Sleep Quality" value={reflection.sleepQuality} onChange={v => setReflection(r => ({ ...r, sleepQuality: v }))} />
-            <Slider label="Sleep Hours" min={4} max={10} value={reflection.sleepHours} onChange={v => setReflection(r => ({ ...r, sleepHours: v }))} valueFormatter={v => `${v}h`} />
-            <Slider label="Hydration" value={reflection.hydration} onChange={v => setReflection(r => ({ ...r, hydration: v }))} />
-            <Slider label="Nutrition" value={reflection.nutrition} onChange={v => setReflection(r => ({ ...r, nutrition: v }))} />
-            <Slider label="Stress Level" value={reflection.stress} onChange={v => setReflection(r => ({ ...r, stress: v }))} />
-          </CardContent>
-        </Card>
+        {/* Energy */}
+        <section>
+          <div className="flex items-baseline justify-between mb-3">
+            <h2 className="text-xs uppercase tracking-widest font-semibold text-muted-foreground">Energy level</h2>
+            <span className="text-3xl font-bold tabular-nums">{energy}<span className="text-base text-muted-foreground font-normal">/10</span></span>
+          </div>
+          <Slider value={energy} onChange={setEnergy} />
+        </section>
 
-        <Card>
-          <CardHeader><CardTitle className="text-base">Session Notes</CardTitle></CardHeader>
-          <CardContent className="space-y-4">
-            <Input label="Win of the Day" placeholder="What went well?" value={reflection.winOfTheDay} onChange={e => setReflection(r => ({ ...r, winOfTheDay: e.target.value }))} />
-            <Input label="Challenge" placeholder="What was hard?" value={reflection.struggleOfTheDay} onChange={e => setReflection(r => ({ ...r, struggleOfTheDay: e.target.value }))} />
-            <Input label="Pain Notes" placeholder="Any discomfort? Where?" value={reflection.painNotes} onChange={e => setReflection(r => ({ ...r, painNotes: e.target.value }))} />
-          </CardContent>
-        </Card>
+        {/* Journal — the main entry */}
+        <section>
+          <h2 className="text-xs uppercase tracking-widest font-semibold text-muted-foreground mb-3">Notes</h2>
+          <textarea
+            value={journal}
+            onChange={(e) => setJournal(e.target.value)}
+            placeholder="How did the session feel? What worked, what didn't?"
+            rows={5}
+            className="w-full rounded-2xl bg-card border border-border/50 px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-foreground/30 focus:border-foreground/40 transition-colors resize-none"
+          />
+        </section>
 
-        <Button className="w-full" size="lg" onClick={handleSubmit} loading={isSubmitting}>
-          Complete Workout
-        </Button>
+        <section className="space-y-3">
+          <Input
+            label="Win of the day"
+            placeholder="The best thing about today's session"
+            value={win}
+            onChange={e => setWin(e.target.value)}
+          />
+          <Input
+            label="Challenge"
+            placeholder="What was hardest?"
+            value={struggle}
+            onChange={e => setStruggle(e.target.value)}
+          />
+        </section>
+      </div>
+
+      {/* Sticky action bar */}
+      <div className="fixed bottom-0 inset-x-0 z-40 bg-background/90 backdrop-blur-xl border-t border-border/40 safe-area-bottom">
+        <div className="max-w-lg mx-auto px-5 py-3 flex gap-2">
+          <Button
+            variant="ghost"
+            onClick={async () => {
+              // Skip means: still mark the workout completed, just no journal entry.
+              await db.workouts.update(workoutId, { status: 'completed', completedAt: new Date() })
+              const u = await getCurrentUser()
+              if (u) await updateStreakOnWorkoutComplete(u.id)
+              onComplete()
+            }}
+            className="flex-1"
+          >
+            Skip
+          </Button>
+          <Button onClick={handleSubmit} loading={isSubmitting} className="flex-[2]">
+            Save & finish
+          </Button>
+        </div>
       </div>
     </div>
   )
@@ -730,67 +827,84 @@ function CelebrationScreen({
   newAchievements: AchievementId[]
   onContinue: () => void
 }) {
-  const [showAchievements, setShowAchievements] = useState(false)
-  useEffect(() => {
-    if (newAchievements.length > 0) {
-      const t = setTimeout(() => setShowAchievements(true), 800)
-      return () => clearTimeout(t)
-    }
-  }, [newAchievements])
-
-  const isOnFire = streak >= 3
-
   return (
-    <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6 text-center">
-      <div className="mb-6 animate-float">
-        <span className="text-7xl">{isOnFire ? '🔥' : '✓'}</span>
-      </div>
-      <h1 className="text-4xl font-black tracking-tight mb-1">FORGED</h1>
-      <p className="text-muted-foreground mb-8">{workoutName} complete</p>
+    <div className="min-h-screen bg-background flex flex-col safe-area-inset">
+      <main className="flex-1 flex flex-col items-center justify-center px-6 max-w-md mx-auto w-full text-center">
+        {/* Hero — checkmark glyph, scales in */}
+        <motion.div
+          initial={{ scale: 0.6, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          transition={{ duration: 0.45, ease: [0.34, 1.56, 0.64, 1] }}
+          className="h-20 w-20 rounded-full bg-foreground text-background flex items-center justify-center mb-6"
+        >
+          <svg viewBox="0 0 24 24" className="h-10 w-10" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"><path d="M5 13l4 4L19 7" /></svg>
+        </motion.div>
 
-      <div className={cn(
-        'w-full max-w-sm mb-6 rounded-2xl border p-6',
-        isOnFire ? 'border-primary/40 bg-gradient-to-br from-primary/10 to-transparent shadow-glow' : 'border-border/50 bg-card'
-      )}>
-        <div className={cn('text-6xl font-black font-mono', isOnFire ? 'text-primary' : 'text-foreground')}>
-          {streak}
-        </div>
-        <p className="text-sm text-muted-foreground mt-1">day streak</p>
-        <p className="text-sm text-muted-foreground mt-3">{getStreakMessage(streak)}</p>
-      </div>
+        <motion.h1
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.15, duration: 0.3 }}
+          className="text-2xl font-bold tracking-tight"
+        >
+          Workout complete
+        </motion.h1>
+        <motion.p
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.2, duration: 0.3 }}
+          className="text-sm text-muted-foreground mt-1 mb-8"
+        >
+          {workoutName}
+        </motion.p>
 
-      <div className="flex gap-8 mb-8">
-        <div className="text-center">
-          <p className="text-2xl font-black font-mono">{totalWorkouts}</p>
-          <p className="text-xs text-muted-foreground">total workouts</p>
-        </div>
-      </div>
-
-      {newAchievements.length > 0 && showAchievements && (
-        <div className="w-full max-w-sm mb-8 animate-bounce-in">
-          <p className="text-xs font-bold text-primary uppercase tracking-widest mb-3">
-            🏅 Achievement{newAchievements.length > 1 ? 's' : ''} Unlocked!
-          </p>
-          <div className="space-y-2">
-            {newAchievements.map(id => {
-              const a = ACHIEVEMENTS[id]
-              if (!a) return null
-              return (
-                <div key={id} className="rounded-2xl border border-primary/30 bg-primary/5 p-3 flex items-center gap-3">
-                  <span className="text-3xl">{a.icon}</span>
-                  <div className="text-left">
-                    <p className="font-bold text-sm">{a.name}</p>
-                    <p className="text-xs text-muted-foreground">{a.description}</p>
-                  </div>
-                </div>
-              )
-            })}
+        {/* Stats — two columns, no overlapping cards */}
+        <motion.div
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.28, duration: 0.3 }}
+          className="w-full grid grid-cols-2 gap-3 mb-6"
+        >
+          <div className="rounded-2xl bg-card border border-border/40 p-4 text-left">
+            <p className="text-[10px] uppercase tracking-widest text-muted-foreground">Streak</p>
+            <p className="text-3xl font-bold tabular-nums mt-1">{streak}<span className="text-sm text-muted-foreground font-normal ml-1">days</span></p>
           </div>
-        </div>
-      )}
+          <div className="rounded-2xl bg-card border border-border/40 p-4 text-left">
+            <p className="text-[10px] uppercase tracking-widest text-muted-foreground">Total</p>
+            <p className="text-3xl font-bold tabular-nums mt-1">{totalWorkouts}<span className="text-sm text-muted-foreground font-normal ml-1">workouts</span></p>
+          </div>
+        </motion.div>
 
-      <p className="text-sm text-muted-foreground italic mb-8 max-w-xs">{getMotivationalQuote()}</p>
-      <Button size="lg" onClick={onContinue} className="w-full max-w-sm">Continue</Button>
+        {/* Achievements — only render if any. Inline list, no popup. */}
+        {newAchievements.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.36, duration: 0.3 }}
+            className="w-full mb-6"
+          >
+            <p className="text-[10px] uppercase tracking-widest font-semibold text-muted-foreground mb-2 text-left">New achievements</p>
+            <div className="space-y-2">
+              {newAchievements.map(id => {
+                const a = ACHIEVEMENTS[id]
+                if (!a) return null
+                return (
+                  <div key={id} className="rounded-xl border border-border/40 bg-card p-3 flex items-center gap-3 text-left">
+                    <span className="text-2xl">{a.icon}</span>
+                    <div className="min-w-0">
+                      <p className="font-semibold text-sm truncate">{a.name}</p>
+                      <p className="text-xs text-muted-foreground truncate">{a.description}</p>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </motion.div>
+        )}
+      </main>
+
+      <div className="px-6 pb-8 safe-area-bottom max-w-md mx-auto w-full">
+        <Button size="lg" onClick={onContinue} className="w-full">Continue</Button>
+      </div>
     </div>
   )
 }
@@ -819,7 +933,14 @@ function WorkoutSummary({
         sets: SetInstance[]
       }>
     }>
-    reflection?: { energy: number; performance: number; winOfTheDay: string } | null
+    reflection?: {
+      energy: number
+      performance: number
+      overallSatisfaction: number
+      winOfTheDay: string
+      struggleOfTheDay: string
+      freeformNotes: string
+    } | null
   }
   onBack: () => void
 }) {
@@ -835,92 +956,106 @@ function WorkoutSummary({
   )
 
   return (
-    <div className="min-h-screen bg-background p-4 pb-8">
-      <header className="flex items-center justify-between mb-6">
-        <button onClick={onBack} className="w-9 h-9 rounded-xl bg-secondary flex items-center justify-center text-muted-foreground">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-            <path d="m15 18-6-6 6-6" />
-          </svg>
+    <div className="min-h-screen bg-background pb-8">
+      <header className="px-5 pt-12 pb-5 flex items-start gap-3">
+        <button onClick={onBack} className="h-9 w-9 flex items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors -ml-1" aria-label="Back">
+          <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M15 18l-6-6 6-6" /></svg>
         </button>
-        <div className="text-center flex-1">
-          <h1 className="text-xl font-black">{workout.name}</h1>
-          <Badge variant="success" className="mt-1 text-xs">Completed</Badge>
+        <div className="flex-1 min-w-0">
+          <p className="text-[10px] uppercase tracking-widest text-muted-foreground">
+            {completedDate ? completedDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' }) : 'Completed'}
+          </p>
+          <h1 className="text-2xl font-bold tracking-tight mt-1 truncate">{workout.name}</h1>
         </div>
-        <div className="w-9" />
       </header>
 
-      {completedDate && (
-        <Card className="mb-4">
-          <CardContent className="py-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs text-muted-foreground">Completed</p>
-                <p className="font-bold text-sm mt-0.5">
-                  {completedDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  {completedDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
-                </p>
-              </div>
-              {totalSets > 0 && (
-                <div className="text-right">
-                  <p className="text-3xl font-black text-primary">{totalSets}</p>
-                  <p className="text-xs text-muted-foreground">sets</p>
-                  {workout.totalDuration && workout.totalDuration > 0 && (
-                    <p className="text-xs text-muted-foreground">{workout.totalDuration} min</p>
-                  )}
-                </div>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {workout.reflection && (
-        <Card className="mb-4">
-          <CardHeader><CardTitle className="text-base">Session Reflection</CardTitle></CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <p className="text-xs text-muted-foreground">Energy</p>
-                <p className="text-2xl font-black">{workout.reflection.energy}<span className="text-sm font-normal text-muted-foreground">/10</span></p>
-              </div>
-              <div>
-                <p className="text-xs text-muted-foreground">Performance</p>
-                <p className="text-2xl font-black">{workout.reflection.performance}<span className="text-sm font-normal text-muted-foreground">/10</span></p>
-              </div>
-            </div>
-            {workout.reflection.winOfTheDay && (
-              <div className="mt-3 pt-3 border-t border-border/30">
-                <p className="text-xs text-muted-foreground">Win of the Day</p>
-                <p className="text-sm mt-1">"{workout.reflection.winOfTheDay}"</p>
+      <div className="px-5 space-y-5">
+        {/* Stat strip */}
+        {completedDate && (
+          <div className="flex gap-3">
+            {totalSets > 0 && (
+              <div className="flex-1 rounded-2xl bg-card border border-border/40 p-4">
+                <p className="text-[10px] uppercase tracking-widest text-muted-foreground">Sets</p>
+                <p className="text-2xl font-bold tabular-nums mt-1">{totalSets}</p>
               </div>
             )}
-          </CardContent>
-        </Card>
-      )}
+            {workout.totalDuration && workout.totalDuration > 0 && (
+              <div className="flex-1 rounded-2xl bg-card border border-border/40 p-4">
+                <p className="text-[10px] uppercase tracking-widest text-muted-foreground">Time</p>
+                <p className="text-2xl font-bold tabular-nums mt-1">{workout.totalDuration}<span className="text-sm text-muted-foreground font-normal ml-1">min</span></p>
+              </div>
+            )}
+            <div className="flex-1 rounded-2xl bg-card border border-border/40 p-4">
+              <p className="text-[10px] uppercase tracking-widest text-muted-foreground">At</p>
+              <p className="text-2xl font-bold tabular-nums mt-1">
+                {completedDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+              </p>
+            </div>
+          </div>
+        )}
 
-      {hasBlockExercises && (
-        <Card className="mb-4">
-          <CardHeader><CardTitle className="text-base">Exercises</CardTitle></CardHeader>
-          <CardContent>
-            <div className="space-y-4">
+        {/* Journal entry */}
+        {workout.reflection && (
+          <section className="rounded-2xl bg-card border border-border/40 p-5">
+            <div className="flex items-center justify-between mb-4">
+              <p className="text-[10px] uppercase tracking-widest font-semibold text-muted-foreground">Journal</p>
+              <div className="flex gap-4 text-right">
+                <div>
+                  <p className="text-[10px] uppercase text-muted-foreground">Felt</p>
+                  <p className="text-sm font-bold tabular-nums">{workout.reflection.overallSatisfaction}/10</p>
+                </div>
+                <div>
+                  <p className="text-[10px] uppercase text-muted-foreground">Energy</p>
+                  <p className="text-sm font-bold tabular-nums">{workout.reflection.energy}/10</p>
+                </div>
+              </div>
+            </div>
+
+            {workout.reflection.freeformNotes && (
+              <p className="text-base leading-relaxed text-foreground/90 mb-4 whitespace-pre-wrap">
+                {workout.reflection.freeformNotes}
+              </p>
+            )}
+
+            {(workout.reflection.winOfTheDay || workout.reflection.struggleOfTheDay) && (
+              <div className="space-y-3 pt-3 border-t border-border/30">
+                {workout.reflection.winOfTheDay && (
+                  <div>
+                    <p className="text-[10px] uppercase tracking-widest font-semibold text-muted-foreground">Win</p>
+                    <p className="text-sm mt-1 text-foreground/90">{workout.reflection.winOfTheDay}</p>
+                  </div>
+                )}
+                {workout.reflection.struggleOfTheDay && (
+                  <div>
+                    <p className="text-[10px] uppercase tracking-widest font-semibold text-muted-foreground">Challenge</p>
+                    <p className="text-sm mt-1 text-foreground/90">{workout.reflection.struggleOfTheDay}</p>
+                  </div>
+                )}
+              </div>
+            )}
+          </section>
+        )}
+
+        {hasBlockExercises ? (
+          <section className="rounded-2xl bg-card border border-border/40 p-5">
+            <p className="text-[10px] uppercase tracking-widest font-semibold text-muted-foreground mb-4">Exercises</p>
+            <div className="space-y-5">
               {workout.blocks.map(block =>
                 block.exercises.map(exerciseInstance => {
                   const completedSets = exerciseInstance.sets.filter(s => s.completed)
                   if (completedSets.length === 0) return null
                   return (
-                    <div key={exerciseInstance.id} className="mb-4 last:mb-0">
-                      <h4 className="font-bold text-sm mb-2">{exerciseInstance.exercise?.name || 'Exercise'}</h4>
+                    <div key={exerciseInstance.id}>
+                      <h4 className="font-semibold text-sm mb-2 truncate">{exerciseInstance.exercise?.name || 'Exercise'}</h4>
                       <div className="space-y-1">
                         {completedSets.map((set, index) => (
                           <div key={set.id} className="flex items-center justify-between text-sm bg-secondary/40 rounded-xl px-3 py-2">
                             <span className="text-xs text-muted-foreground font-mono">Set {index + 1}</span>
                             <div className="flex items-center gap-3">
-                              <span className="font-bold">{set.actualWeight || set.targetWeight} lbs</span>
-                              <span className="text-muted-foreground">× {set.actualReps || set.targetReps}</span>
+                              <span className="font-semibold">{set.actualWeight ?? set.targetWeight ?? '—'} lbs</span>
+                              <span className="text-muted-foreground">× {set.actualReps ?? set.targetReps ?? '—'}</span>
                               {(set.actualRPE || set.targetRPE) && (
-                                <span className={cn('text-xs font-mono', getRPEColor(set.actualRPE || set.targetRPE || 0))}>
+                                <span className={cn('text-xs font-mono text-muted-foreground')}>
                                   @{set.actualRPE || set.targetRPE}
                                 </span>
                               )}
@@ -933,34 +1068,15 @@ function WorkoutSummary({
                 })
               )}
             </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {!hasBlockExercises && (
-        <Card className="mb-4">
-          <CardContent className="py-8 text-center">
-            <p className="text-muted-foreground text-sm">No exercise data recorded</p>
-          </CardContent>
-        </Card>
-      )}
-
-      <Button variant="outline" className="w-full mt-4" onClick={onBack}>Back to History</Button>
+          </section>
+        ) : (
+          <p className="text-muted-foreground text-sm text-center py-8">No exercise data recorded</p>
+        )}
+      </div>
     </div>
   )
 }
 
-function getMotivationalQuote(): string {
-  const quotes = [
-    "Every rep shapes who you become.",
-    "The iron never lies.",
-    "Discipline is choosing what you want most over what you want now.",
-    "Progress, not perfection.",
-    "Trust the process.",
-    "Champions are made when no one is watching.",
-  ]
-  return quotes[Math.floor(Math.random() * quotes.length)]
-}
 
 function getBlockInstructions(blockType: BlockType): string {
   switch (blockType) {
@@ -968,4 +1084,32 @@ function getBlockInstructions(blockType: BlockType): string {
     case 'cooldown': return 'Cool down with static stretching and breathing. Take your time.'
     default: return 'Complete the exercises in this block, then tap complete.'
   }
+}
+
+// Group consecutive exercises sharing a supersetGroupId, matching the planner.
+type ExecExercise = { id: string; exerciseId: string; exercise?: { name: string; cues: string[] }; sets: SetInstance[]; notes: string; supersetGroupId?: string | null }
+type ExecGroup =
+  | { kind: 'solo'; instance: ExecExercise }
+  | { kind: 'group'; groupId: string; members: ExecExercise[] }
+
+function groupExercisesBySuperset(exercises: ExecExercise[]): ExecGroup[] {
+  const out: ExecGroup[] = []
+  let i = 0
+  while (i < exercises.length) {
+    const ex = exercises[i]
+    if (!ex.supersetGroupId) {
+      out.push({ kind: 'solo', instance: ex })
+      i++
+      continue
+    }
+    const groupId = ex.supersetGroupId
+    const members: ExecExercise[] = []
+    while (i < exercises.length && exercises[i].supersetGroupId === groupId) {
+      members.push(exercises[i])
+      i++
+    }
+    if (members.length === 1) out.push({ kind: 'solo', instance: members[0] })
+    else out.push({ kind: 'group', groupId, members })
+  }
+  return out
 }

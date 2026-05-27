@@ -7,7 +7,7 @@ interface NumberStepperProps {
   min?: number
   max?: number
   step?: number
-  /** Allow user to clear the value entirely (returns null). Default: false. */
+  /** Deprecated — clearing the field always returns null. The consumer decides what null means. */
   allowNull?: boolean
   /** Compact display — no decimal handling. */
   integer?: boolean
@@ -31,7 +31,7 @@ export function NumberStepper({
   min = 0,
   max = 9999,
   step = 1,
-  allowNull = false,
+  allowNull: _allowNull,
   integer = true,
   placeholder = '—',
   ariaLabel,
@@ -48,16 +48,19 @@ export function NumberStepper({
 
   const commit = useCallback((next: number | null) => {
     if (next === null) {
-      if (allowNull) onChange(null)
-      else onChange(min)
+      // Always allow clearing — the consumer decides what null means. This
+      // prevents the field from snapping back to 0 the moment you delete it.
+      onChange(null)
       return
     }
     const clamped = Math.min(Math.max(next, min), max)
     onChange(integer ? Math.round(clamped) : clamped)
-  }, [onChange, min, max, integer, allowNull])
+  }, [onChange, min, max, integer])
 
-  const inc = () => commit((value ?? 0) + step)
-  const dec = () => commit((value ?? 0) - step)
+  // For inc/dec, treat null as a starting baseline rather than literally 0,
+  // so tapping + on an empty field jumps to a sensible value, not "1".
+  const inc = () => commit((value ?? min) + (value == null ? 0 : step))
+  const dec = () => commit((value ?? min) - (value == null ? 0 : step))
 
   const sizes = {
     sm: { btn: 'h-9 w-9', icon: 'h-4 w-4', input: 'h-9 w-14 text-sm', gap: 'gap-1' },

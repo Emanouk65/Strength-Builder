@@ -38,7 +38,7 @@ export function Layout({ children }: LayoutProps) {
 
           <div className="relative mx-auto flex max-w-lg items-center justify-around px-2">
             <NavItem to="/" icon={HomeIcon} label="Today" />
-            <NavItem to="/program" icon={CalendarIcon} label="Program" />
+            <NavItem to="/history" icon={ChartIcon} label="History" />
 
             {/* Center Plan FAB */}
             <div className="relative -mt-5">
@@ -60,7 +60,7 @@ export function Layout({ children }: LayoutProps) {
               </button>
             </div>
 
-            <NavItem to="/history" icon={ChartIcon} label="History" />
+            <NavItem to="/lift-records" icon={TrophyIcon} label="Records" />
             <NavItem to="/settings" icon={SettingsIcon} label="Settings" />
           </div>
         </nav>
@@ -82,8 +82,8 @@ function NavItem({ to, icon: Icon, label }: NavItemProps) {
       end={to === '/'}
       className={({ isActive }) =>
         cn(
-          'relative flex flex-col items-center gap-0.5 px-4 py-3 text-xs font-medium transition-colors touch-target',
-          isActive ? 'text-primary' : 'text-muted-foreground hover:text-foreground'
+          'relative flex flex-col items-center justify-center gap-1 w-16 h-14 my-1 rounded-2xl text-xs font-medium transition-colors touch-target',
+          isActive ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'
         )
       }
     >
@@ -92,12 +92,12 @@ function NavItem({ to, icon: Icon, label }: NavItemProps) {
           {isActive && (
             <motion.div
               layoutId="nav-indicator"
-              className="absolute top-0 left-1/2 -translate-x-1/2 h-0.5 w-8 rounded-full bg-primary"
-              transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+              className="absolute inset-0 rounded-2xl bg-secondary/80"
+              transition={{ type: 'spring', stiffness: 500, damping: 32 }}
             />
           )}
-          <Icon className={cn('h-5 w-5 transition-transform', isActive && 'scale-110')} />
-          <span className={cn('text-[10px]', isActive && 'text-primary font-semibold')}>{label}</span>
+          <Icon className={cn('relative z-10 h-5 w-5')} />
+          <span className={cn('relative z-10 text-[10px]', isActive && 'font-semibold')}>{label}</span>
         </>
       )}
     </NavLink>
@@ -112,10 +112,10 @@ function HomeIcon({ className }: { className?: string }) {
   )
 }
 
-function CalendarIcon({ className }: { className?: string }) {
+function TrophyIcon({ className }: { className?: string }) {
   return (
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M8 21h8M12 17v4M7 4h10v6a5 5 0 11-10 0V4zM7 4H4v3a3 3 0 003 3M17 4h3v3a3 3 0 01-3 3" />
     </svg>
   )
 }

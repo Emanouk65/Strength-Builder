@@ -148,6 +148,7 @@ export class ForgeDB extends Dexie {
             notes: e.notes ?? '',
             substituteFor: null,
             substitutionReason: null,
+            supersetGroupId: null,
           })
 
           if (e.sets && e.sets.length > 0) {
@@ -181,6 +182,18 @@ export class ForgeDB extends Dexie {
     // in v5, so this is a pure cleanup step.
     this.version(6).stores({
       quickLogEntries: null,
+    })
+
+    // v7 — adds supersetGroupId index on exerciseInstances and backfills nulls
+    // onto existing rows. Exercises sharing the same supersetGroupId form a
+    // group (up to 5 members) that's visually stacked in the planner and
+    // alternates set-by-set during execution.
+    this.version(7).stores({
+      exerciseInstances: 'id, blockId, exerciseId, order, supersetGroupId',
+    }).upgrade(async tx => {
+      await tx.table('exerciseInstances').toCollection().modify((inst: { supersetGroupId?: string | null }) => {
+        if (inst.supersetGroupId === undefined) inst.supersetGroupId = null
+      })
     })
   }
 }
@@ -256,13 +269,14 @@ export async function getWorkoutWithDetails(workoutId: string) {
     .anyOf(blockIds)
     .toArray()
 
-  // Batch fetch all exercises needed
+  // Batch fetch all exercises needed — merge library + custom so user-defined
+  // exercises render with their proper name/muscles in the execution view.
   const exerciseIds = [...new Set(allInstances.map(i => i.exerciseId))]
-  const exercises = await db.exercises
-    .where('id')
-    .anyOf(exerciseIds)
-    .toArray()
-  const exerciseMap = new Map(exercises.map(e => [e.id, e]))
+  const [libExercises, customExercises] = await Promise.all([
+    db.exercises.where('id').anyOf(exerciseIds).toArray(),
+    db.customExercises.where('id').anyOf(exerciseIds).toArray(),
+  ])
+  const exerciseMap = new Map([...libExercises, ...customExercises].map(e => [e.id, e]))
 
   // Batch fetch all sets for all instances
   const instanceIds = allInstances.map(i => i.id)
@@ -1075,6 +1089,7 @@ export async function addExerciseToDraft(
       notes: '',
       substituteFor: null,
       substitutionReason: null,
+      supersetGroupId: null,
     })
 
     const setRows = Array.from({ length: sets }, (_, i) => ({
@@ -1212,6 +1227,53 @@ export async function setExerciseSetCount(
       if (block) await db.workouts.update(block.workoutId, { lastEditedAt: new Date() })
     }
   })
+}
+
+// Maximum number of exercises allowed in a single superset group.
+export const SUPERSET_MAX_MEMBERS = 5
+
+/**
+ * Add an exercise to a superset group. If groupId is null, creates a new group
+ * with this exercise as its sole member. If the group already has the maximum
+ * members, no-op.
+ */
+export async function addExerciseToSuperset(
+  instanceId: string,
+  groupId: string | null
+): Promise<string | null> {
+  const inst = await db.exerciseInstances.get(instanceId)
+  if (!inst) return null
+
+  if (groupId) {
+    const count = await db.exerciseInstances
+      .where('supersetGroupId').equals(groupId)
+      .count()
+    if (count >= SUPERSET_MAX_MEMBERS) return groupId // group is full
+  }
+
+  const newGroup = groupId ?? crypto.randomUUID()
+  await db.exerciseInstances.update(instanceId, { supersetGroupId: newGroup })
+  return newGroup
+}
+
+/**
+ * Remove an exercise from its superset group. If only one member remains in the
+ * group after removal, that member is also cleared (a "group" of 1 is just a
+ * solo exercise).
+ */
+export async function removeExerciseFromSuperset(instanceId: string): Promise<void> {
+  const inst = await db.exerciseInstances.get(instanceId)
+  if (!inst || !inst.supersetGroupId) return
+
+  const groupId = inst.supersetGroupId
+  await db.exerciseInstances.update(instanceId, { supersetGroupId: null })
+
+  const remaining = await db.exerciseInstances
+    .where('supersetGroupId').equals(groupId)
+    .toArray()
+  if (remaining.length === 1) {
+    await db.exerciseInstances.update(remaining[0].id, { supersetGroupId: null })
+  }
 }
 
 /**

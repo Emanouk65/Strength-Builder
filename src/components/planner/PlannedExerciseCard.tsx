@@ -1,5 +1,6 @@
 import { motion } from 'framer-motion'
 import { NumberStepper } from '@/components/ui'
+import { cn } from '@/lib/utils'
 import type { Exercise, SetInstance } from '@/lib/types'
 
 interface PlannedExerciseCardProps {
@@ -12,6 +13,12 @@ interface PlannedExerciseCardProps {
   onRemove: () => void
   onMoveUp?: () => void
   onMoveDown?: () => void
+  /** Link this exercise to its next neighbor as a superset. */
+  onLinkNext?: () => void
+  /** Remove this exercise from its current superset (only available when inSuperset). */
+  onUnlink?: () => void
+  /** When true the card renders flat-on-flat (no outer border) for use inside a superset container. */
+  inSuperset?: boolean
 }
 
 export function PlannedExerciseCard({
@@ -23,6 +30,9 @@ export function PlannedExerciseCard({
   onRemove,
   onMoveUp,
   onMoveDown,
+  onLinkNext,
+  onUnlink,
+  inSuperset,
 }: PlannedExerciseCardProps) {
   const setCount = sets.length
   // In planning mode all sets share the same target. Changing one changes all.
@@ -53,7 +63,12 @@ export function PlannedExerciseCard({
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, scale: 0.97 }}
       transition={{ duration: 0.22, ease: [0.4, 0, 0.2, 1] }}
-      className="rounded-2xl bg-card border border-border/50 overflow-hidden shadow-card"
+      className={cn(
+        'rounded-2xl overflow-hidden',
+        inSuperset
+          ? 'bg-card/80 border border-border/40'
+          : 'bg-card border border-border/50 shadow-card'
+      )}
     >
       {/* Header */}
       <div className="flex items-start justify-between gap-3 px-5 pt-4 pb-3">
@@ -83,6 +98,36 @@ export function PlannedExerciseCard({
               aria-label="Move down"
             >
               <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M6 9l6 6 6-6" /></svg>
+            </button>
+          )}
+          {onLinkNext && !inSuperset && (
+            <button
+              onClick={onLinkNext}
+              className="h-9 w-9 flex items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors touch-target"
+              aria-label="Superset with next"
+              title="Group with next exercise as a superset"
+            >
+              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71" /><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71" /></svg>
+            </button>
+          )}
+          {onLinkNext && inSuperset && (
+            <button
+              onClick={onLinkNext}
+              className="h-9 w-9 flex items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors touch-target"
+              aria-label="Add next exercise to superset"
+              title="Add the next exercise to this superset"
+            >
+              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M5 12h14" /></svg>
+            </button>
+          )}
+          {onUnlink && (
+            <button
+              onClick={onUnlink}
+              className="h-9 w-9 flex items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors touch-target"
+              aria-label="Remove from superset"
+              title="Break out of the superset"
+            >
+              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M18.84 12.25l1.72-1.71a5 5 0 10-7.07-7.07l-1.72 1.71M14 11l-7.07 7.07a5 5 0 11-7.07-7.07L7 4" /><path d="M3 3l18 18" /></svg>
             </button>
           )}
           <button

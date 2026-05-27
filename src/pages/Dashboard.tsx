@@ -2,10 +2,10 @@ import { useState, useMemo } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { db, getCurrentUser, getNextAvailableWorkout, getMissedWorkouts, skipWorkout, getActivePhase, getRecentReflections, getUserAchievements, getTodaysCheckIn, getRecentCheckIns, getDraftWorkout, getScheduledWorkouts } from '@/db'
-import { Button, Card, CardContent, CardHeader, CardTitle, Badge, Progress } from '@/components/ui'
+import { db, getCurrentUser, getNextAvailableWorkout, getMissedWorkouts, skipWorkout, getRecentReflections, getUserAchievements, getTodaysCheckIn, getRecentCheckIns, getDraftWorkout, getScheduledWorkouts } from '@/db'
+import { Button, Card, CardContent, CardHeader, CardTitle, Badge } from '@/components/ui'
 import { formatDate, formatDuration, cn, getShortDayName, getLocalDateString } from '@/lib/utils'
-import { PHASE_CONFIG, ACHIEVEMENTS } from '@/lib/constants'
+import { ACHIEVEMENTS } from '@/lib/constants'
 import type { WorkoutReflection, Workout, DailyCheckIn } from '@/lib/types'
 
 export function Dashboard() {
@@ -23,13 +23,6 @@ export function Dashboard() {
     async () => {
       if (!user) return []
       return getMissedWorkouts(user.id)
-    },
-    [user]
-  )
-  const activePhase = useLiveQuery(
-    async () => {
-      if (!user) return null
-      return getActivePhase(user.id)
     },
     [user]
   )
@@ -212,7 +205,6 @@ export function Dashboard() {
           nextWorkout={nextWorkout}
           onStart={(id) => navigate(`/workout/${id}`)}
           onStartFree={() => navigate('/plan')}
-          onProgram={() => navigate('/program')}
         />
 
         {/* Weekly Stats Row */}
@@ -251,26 +243,6 @@ export function Dashboard() {
             }}
             onCatchUp={(workoutId) => navigate(`/workout/${workoutId}`)}
           />
-        )}
-
-        {/* Active Phase */}
-        {activePhase && (
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-base">Current Phase</CardTitle>
-                <Badge variant="outline">
-                  {PHASE_CONFIG[activePhase.type]?.label || activePhase.type}
-                </Badge>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm text-muted-foreground mb-3">
-                {PHASE_CONFIG[activePhase.type]?.description}
-              </p>
-              <PhaseProgress phase={activePhase} />
-            </CardContent>
-          </Card>
         )}
 
         {/* Recent Trends */}
@@ -341,23 +313,6 @@ export function Dashboard() {
           </Card>
         )}
 
-        {/* No Program State */}
-        {!activePhase && (
-          <Card className="border-dashed border-2 border-border/50">
-            <CardContent className="py-8 text-center">
-              <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-3">
-                <span className="text-2xl">📋</span>
-              </div>
-              <h3 className="font-bold mb-1">No Active Program</h3>
-              <p className="text-sm text-muted-foreground mb-4">
-                Create a training program for structured workouts, or use Quick Log for free workouts.
-              </p>
-              <Button onClick={() => navigate('/program')}>
-                Create Program
-              </Button>
-            </CardContent>
-          </Card>
-        )}
       </div>
     </div>
   )
@@ -369,12 +324,10 @@ function NextWorkoutCard({
   nextWorkout,
   onStart,
   onStartFree,
-  onProgram,
 }: {
   nextWorkout: Workout | null | undefined
   onStart: (id: string) => void
   onStartFree: () => void
-  onProgram: () => void
 }) {
   if (nextWorkout?.status === 'completed') {
     return (
@@ -436,10 +389,7 @@ function NextWorkoutCard({
         <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mb-1">Free Day</p>
         <h2 className="text-xl font-bold text-foreground mb-1 tracking-tight">No Scheduled Workout</h2>
         <p className="text-sm text-muted-foreground mb-4">Plan a workout or take a recovery day.</p>
-        <div className="flex gap-3">
-          <Button className="flex-1" onClick={onStartFree}>Plan Workout</Button>
-          <Button variant="outline" className="flex-1" onClick={onProgram}>View Program</Button>
-        </div>
+        <Button className="w-full" onClick={onStartFree}>Plan Workout</Button>
       </div>
     </div>
   )
@@ -734,26 +684,6 @@ function MissedWorkoutsCard({
         )}
       </CardContent>
     </Card>
-  )
-}
-
-function PhaseProgress({ phase }: { phase: { startDate: Date; endDate: Date; weekCount: number } }) {
-  const start = new Date(phase.startDate)
-  const end = new Date(phase.endDate)
-  const today = new Date()
-  const totalDays = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24))
-  const daysElapsed = Math.ceil((today.getTime() - start.getTime()) / (1000 * 60 * 60 * 24))
-  const progress = Math.min(Math.max((daysElapsed / totalDays) * 100, 0), 100)
-  const currentWeek = Math.min(Math.ceil(daysElapsed / 7), phase.weekCount)
-
-  return (
-    <div className="space-y-2">
-      <div className="flex justify-between text-xs text-muted-foreground">
-        <span>Week {currentWeek} of {phase.weekCount}</span>
-        <span>{Math.round(progress)}%</span>
-      </div>
-      <Progress value={progress} />
-    </div>
   )
 }
 

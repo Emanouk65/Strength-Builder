@@ -16,6 +16,9 @@ import {
   scheduleDraft,
   promoteToInProgress,
   discardDraft,
+  addExerciseToSuperset,
+  removeExerciseFromSuperset,
+  SUPERSET_MAX_MEMBERS,
 } from '@/db'
 import { Button } from '@/components/ui'
 import { ExercisePicker } from '@/components/planner/ExercisePicker'
@@ -73,8 +76,9 @@ export function Plan() {
   )
 
   // Guard the URL: if it points at a workout that doesn't exist (deleted draft,
-  // stale link) fall back to a fresh draft; if it points at a completed or
-  // in-progress workout, route to the execution view where it belongs.
+  // stale link) fall back to a fresh draft; if it points at a completed workout,
+  // route to the read-only execution/summary view. Mid-workout editing is
+  // allowed (status === 'in_progress') so users can adjust exercises on the fly.
   useEffect(() => {
     if (!workoutId) return
     let cancelled = false
@@ -85,7 +89,7 @@ export function Plan() {
         navigate('/plan', { replace: true })
         return
       }
-      if (w.status === 'in_progress' || w.status === 'completed') {
+      if (w.status === 'completed') {
         navigate(`/workout/${w.id}`, { replace: true })
       }
     })()
@@ -199,6 +203,26 @@ export function Plan() {
     await reorderExercises(blocks[0].id, ordered.map(i => i.id))
   }, [instances, blocks])
 
+  /**
+   * Link an exercise with its next neighbor into a superset. If the neighbor is
+   * already in a group, join it. Otherwise create a new group.
+   */
+  const handleLinkNext = useCallback(async (instanceId: string) => {
+    if (!instances) return
+    const idx = instances.findIndex(i => i.id === instanceId)
+    if (idx < 0 || idx === instances.length - 1) return
+    const me = instances[idx]
+    const next = instances[idx + 1]
+    // Resolve target group: prefer existing group on this exercise, then next's, then a new one.
+    let group = me.supersetGroupId ?? next.supersetGroupId ?? null
+    group = await addExerciseToSuperset(me.id, group)
+    if (group) await addExerciseToSuperset(next.id, group)
+  }, [instances])
+
+  const handleUnlink = useCallback(async (instanceId: string) => {
+    await removeExerciseFromSuperset(instanceId)
+  }, [])
+
   const handleStartNow = useCallback(async () => {
     if (!workoutId) return
     if (nameTimerRef.current) {
@@ -263,7 +287,7 @@ export function Plan() {
           </button>
           <div className="flex-1 min-w-0">
             <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
-              {isDraft ? 'Drafting' : workout.status === 'planned' ? 'Scheduled' : 'Editing'}
+              {isDraft ? 'Drafting' : workout.status === 'planned' ? 'Scheduled' : workout.status === 'in_progress' ? 'Editing — workout in progress' : 'Editing'}
             </div>
             <input
               type="text"
@@ -308,23 +332,77 @@ export function Plan() {
         ) : (
           <motion.div className="flex flex-col gap-3" {...listMotion}>
             <AnimatePresence initial={false}>
-              {(instances ?? []).map((inst, idx) => {
-                const ex = exerciseMap.get(inst.exerciseId)
-                if (!ex) return null
-                const setList = setsByInstance.get(inst.id) ?? []
+              {groupedRendering(instances).map(group => {
+                if (group.kind === 'solo') {
+                  const inst = group.instance
+                  const ex = exerciseMap.get(inst.exerciseId)
+                  if (!ex) return null
+                  const idx = instances.findIndex(i => i.id === inst.id)
+                  const canLinkNext = idx >= 0 && idx < instances.length - 1
+                  return (
+                    <PlannedExerciseCard
+                      key={inst.id}
+                      exercise={ex}
+                      instanceId={inst.id}
+                      sets={setsByInstance.get(inst.id) ?? []}
+                      weightUnit={user.preferences.weightUnit}
+                      onSetCountChange={(c) => handleSetCountChange(inst.id, c)}
+                      onSetPatch={handleSetPatch}
+                      onRemove={() => handleRemoveExercise(inst.id)}
+                      onMoveUp={idx > 0 ? () => handleMove(inst.id, -1) : undefined}
+                      onMoveDown={canLinkNext ? () => handleMove(inst.id, 1) : undefined}
+                      onLinkNext={canLinkNext ? () => handleLinkNext(inst.id) : undefined}
+                    />
+                  )
+                }
+                // Superset group
                 return (
-                  <PlannedExerciseCard
-                    key={inst.id}
-                    exercise={ex}
-                    instanceId={inst.id}
-                    sets={setList}
-                    weightUnit={user.preferences.weightUnit}
-                    onSetCountChange={(c) => handleSetCountChange(inst.id, c)}
-                    onSetPatch={handleSetPatch}
-                    onRemove={() => handleRemoveExercise(inst.id)}
-                    onMoveUp={idx > 0 ? () => handleMove(inst.id, -1) : undefined}
-                    onMoveDown={idx < (instances?.length ?? 0) - 1 ? () => handleMove(inst.id, 1) : undefined}
-                  />
+                  <motion.div
+                    key={group.groupId}
+                    layout
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, scale: 0.97 }}
+                    transition={{ duration: 0.22 }}
+                    className="relative rounded-2xl bg-foreground/[0.03] border border-foreground/15 p-2.5 flex flex-col gap-2"
+                  >
+                    <div className="flex items-center justify-between px-2 pt-1">
+                      <span className="text-[10px] font-semibold uppercase tracking-widest text-foreground/70">
+                        Superset · {group.members.length} exercises
+                      </span>
+                      {group.members.length < SUPERSET_MAX_MEMBERS && (
+                        <span className="text-[10px] text-muted-foreground">
+                          Up to {SUPERSET_MAX_MEMBERS - group.members.length} more
+                        </span>
+                      )}
+                    </div>
+                    {group.members.map((inst) => {
+                      const ex = exerciseMap.get(inst.exerciseId)
+                      if (!ex) return null
+                      const idx = instances.findIndex(i => i.id === inst.id)
+                      const canLinkNext =
+                        idx >= 0 &&
+                        idx < instances.length - 1 &&
+                        group.members.length < SUPERSET_MAX_MEMBERS
+                      return (
+                        <PlannedExerciseCard
+                          key={inst.id}
+                          exercise={ex}
+                          instanceId={inst.id}
+                          sets={setsByInstance.get(inst.id) ?? []}
+                          weightUnit={user.preferences.weightUnit}
+                          onSetCountChange={(c) => handleSetCountChange(inst.id, c)}
+                          onSetPatch={handleSetPatch}
+                          onRemove={() => handleRemoveExercise(inst.id)}
+                          onMoveUp={idx > 0 ? () => handleMove(inst.id, -1) : undefined}
+                          onMoveDown={idx < instances.length - 1 ? () => handleMove(inst.id, 1) : undefined}
+                          onUnlink={() => handleUnlink(inst.id)}
+                          onLinkNext={canLinkNext ? () => handleLinkNext(inst.id) : undefined}
+                          inSuperset
+                        />
+                      )
+                    })}
+                  </motion.div>
                 )
               })}
             </AnimatePresence>
@@ -340,22 +418,31 @@ export function Plan() {
         )}
       </main>
 
-      {/* Bottom action bar */}
+      {/* Bottom action bar — adapts to workout status */}
       {!isEmpty && (
         <div className="fixed bottom-0 inset-x-0 z-40 bg-background/85 backdrop-blur-xl border-t border-border/40 safe-area-bottom">
           <div className="max-w-lg mx-auto px-4 py-3 flex gap-2">
-            <Button
-              variant="outline"
-              onClick={() => setScheduleOpen(true)}
-              className="flex-1"
-            >
-              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" /></svg>
-              Save for later
-            </Button>
-            <Button onClick={handleStartNow} className="flex-1">
-              Start now
-              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14M13 5l7 7-7 7" /></svg>
-            </Button>
+            {workout.status === 'in_progress' ? (
+              <Button onClick={() => navigate(`/workout/${workout.id}`)} className="w-full">
+                Back to workout
+                <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14M13 5l7 7-7 7" /></svg>
+              </Button>
+            ) : (
+              <>
+                <Button
+                  variant="outline"
+                  onClick={() => setScheduleOpen(true)}
+                  className="flex-1"
+                >
+                  <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" /></svg>
+                  Save for later
+                </Button>
+                <Button onClick={handleStartNow} className="flex-1">
+                  Start now
+                  <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14M13 5l7 7-7 7" /></svg>
+                </Button>
+              </>
+            )}
           </div>
         </div>
       )}
@@ -409,4 +496,37 @@ export function Plan() {
       </AnimatePresence>
     </div>
   )
+}
+
+// Group consecutive exercises sharing the same supersetGroupId into a single
+// render group so we can wrap them in a superset container.
+type RenderItem =
+  | { kind: 'solo'; instance: ExerciseInstance }
+  | { kind: 'group'; groupId: string; members: ExerciseInstance[] }
+
+function groupedRendering(instances: ExerciseInstance[]): RenderItem[] {
+  const out: RenderItem[] = []
+  let i = 0
+  while (i < instances.length) {
+    const inst = instances[i]
+    if (!inst.supersetGroupId) {
+      out.push({ kind: 'solo', instance: inst })
+      i++
+      continue
+    }
+    // Collect consecutive instances with the same group id.
+    const groupId = inst.supersetGroupId
+    const members: ExerciseInstance[] = []
+    while (i < instances.length && instances[i].supersetGroupId === groupId) {
+      members.push(instances[i])
+      i++
+    }
+    if (members.length === 1) {
+      // Orphan group — treat as solo to avoid wrapping a single card.
+      out.push({ kind: 'solo', instance: members[0] })
+    } else {
+      out.push({ kind: 'group', groupId, members })
+    }
+  }
+  return out
 }
