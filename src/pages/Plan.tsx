@@ -5,7 +5,6 @@ import { AnimatePresence, motion } from 'framer-motion'
 import {
   db,
   getCurrentUser,
-  getDraftWorkout,
   createDraftWorkout,
   addExerciseToDraft,
   removeExerciseFromDraft,
@@ -39,31 +38,28 @@ export function Plan() {
   const navigate = useNavigate()
   const user = useLiveQuery(() => getCurrentUser(), [])
 
-  const [workoutId, setWorkoutId] = useState<string | null>(urlWorkoutId ?? null)
-  const [bootstrapping, setBootstrapping] = useState(!urlWorkoutId)
+  // workoutId is derived directly from the URL — no mirroring state, no race.
+  const workoutId = urlWorkoutId ?? null
+
   const [pickerOpen, setPickerOpen] = useState(false)
   const [scheduleOpen, setScheduleOpen] = useState(false)
   const [discardConfirm, setDiscardConfirm] = useState(false)
   const initRef = useRef(false)
 
-  // Bootstrap: if no workoutId in URL, find or create a draft.
+  // Bootstrap: when URL has no workoutId, find or create a draft and
+  // redirect to the canonical /plan/:id URL. createDraftWorkout is atomic
+  // (transactional) — returns the existing draft if one exists, never creates
+  // a duplicate.
   useEffect(() => {
     if (!user) return
-    if (urlWorkoutId) {
-      setWorkoutId(urlWorkoutId)
-      setBootstrapping(false)
-      return
-    }
+    if (urlWorkoutId) return
     if (initRef.current) return
     initRef.current = true
 
     let cancelled = false
     ;(async () => {
-      const existing = await getDraftWorkout(user.id)
-      const target = existing ?? await createDraftWorkout(user.id)
+      const target = await createDraftWorkout(user.id)
       if (cancelled) return
-      setWorkoutId(target.id)
-      setBootstrapping(false)
       navigate(`/plan/${target.id}`, { replace: true })
     })()
 
@@ -254,8 +250,8 @@ export function Plan() {
   // Otherwise the page briefly flashes "Build your workout" on a draft that
   // already has exercises, because instances is undefined while loading.
   const dataLoading =
-    bootstrapping ||
     !user ||
+    !workoutId ||
     !workout ||
     blocks === undefined ||
     instances === undefined ||

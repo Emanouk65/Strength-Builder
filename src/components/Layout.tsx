@@ -40,10 +40,11 @@ export function Layout({ children }: LayoutProps) {
             <NavItem to="/" icon={HomeIcon} label="Today" />
             <NavItem to="/history" icon={ChartIcon} label="History" />
 
-            {/* Center Plan FAB */}
+            {/* Center Plan FAB — navigates directly to the existing draft if any,
+                bypassing /plan bootstrap. Prevents lost exercises on re-entry. */}
             <div className="relative -mt-5">
               <button
-                onClick={() => navigate('/plan')}
+                onClick={() => navigate(draft ? `/plan/${draft.id}` : '/plan')}
                 className={cn(
                   'relative flex h-14 w-14 items-center justify-center rounded-full',
                   'bg-primary text-primary-foreground',

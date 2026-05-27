@@ -498,11 +498,13 @@ function WeeklyStatsRow({
   stats: { workoutsCompleted: number; totalMinutes: number; totalSets: number; avgPerformance: number }
   insight: string
 }) {
+  // Show — for empty values rather than a stray 0.
+  const dash = (n: number) => (n > 0 ? n : '—')
   const statItems = [
-    { label: 'Workouts', value: stats.workoutsCompleted, color: 'text-primary' },
-    { label: 'Minutes', value: stats.totalMinutes, color: 'text-foreground' },
-    { label: 'Sets', value: stats.totalSets, color: 'text-foreground' },
-    { label: 'Avg Perf', value: stats.avgPerformance > 0 ? stats.avgPerformance.toFixed(1) : '–', color: 'text-foreground' },
+    { label: 'Workouts', value: dash(stats.workoutsCompleted), color: 'text-primary' },
+    { label: 'Minutes', value: dash(stats.totalMinutes), color: 'text-foreground' },
+    { label: 'Sets', value: dash(stats.totalSets), color: 'text-foreground' },
+    { label: 'Avg Perf', value: stats.avgPerformance > 0 ? stats.avgPerformance.toFixed(1) : '—', color: 'text-foreground' },
   ]
 
   return (

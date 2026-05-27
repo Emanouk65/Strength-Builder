@@ -1045,17 +1045,21 @@ function WorkoutSummary({
         {/* Journal entry */}
         {workout.reflection && (
           <section className="rounded-2xl bg-card border border-border/40 p-5">
-            <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center justify-between mb-4 gap-3">
               <p className="text-[10px] uppercase tracking-widest font-semibold text-muted-foreground">Journal</p>
               <div className="flex gap-4 text-right">
-                <div>
-                  <p className="text-[10px] uppercase text-muted-foreground">Felt</p>
-                  <p className="text-sm font-bold tabular-nums">{workout.reflection.overallSatisfaction}/10</p>
-                </div>
-                <div>
-                  <p className="text-[10px] uppercase text-muted-foreground">Energy</p>
-                  <p className="text-sm font-bold tabular-nums">{workout.reflection.energy}/10</p>
-                </div>
+                {workout.reflection.overallSatisfaction > 0 && (
+                  <div>
+                    <p className="text-[10px] uppercase text-muted-foreground">Felt</p>
+                    <p className="text-sm font-bold tabular-nums">{workout.reflection.overallSatisfaction}/10</p>
+                  </div>
+                )}
+                {workout.reflection.energy > 0 && (
+                  <div>
+                    <p className="text-[10px] uppercase text-muted-foreground">Energy</p>
+                    <p className="text-sm font-bold tabular-nums">{workout.reflection.energy}/10</p>
+                  </div>
+                )}
               </div>
             </div>
 
