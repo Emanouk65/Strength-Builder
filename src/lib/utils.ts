@@ -186,6 +186,55 @@ export function getExerciseLogFields(movementPattern: string, _category?: string
 }
 
 /**
+ * High-level classification used by the planner + workout views to decide
+ * which input fields to render for a given exercise. Cardio collapses both
+ * steady-state and interval movement patterns into a single "cardio" layout
+ * because both are logged the same way (duration + distance per session).
+ *
+ * Detection rules (any one is enough to classify as cardio):
+ *  1) `category` is explicitly `cardio` (outdoor runs, walks, cycling, etc.)
+ *  2) `movementPattern` is `cardio_steady` or `cardio_intervals`
+ *  3) Equipment includes `cardio_machine` (treadmill, bike, rower, ski erg,
+ *     stair climber, elliptical — these are tagged `category: 'conditioning'`
+ *     in the library but logically belong to the cardio input flow)
+ */
+export type ExerciseInputKind = 'strength' | 'cardio'
+
+export function getExerciseInputKind(
+  ex: { category?: string; movementPattern?: string; equipment?: string[] } | null | undefined
+): ExerciseInputKind {
+  if (!ex) return 'strength'
+  if (ex.category === 'cardio') return 'cardio'
+  if (ex.movementPattern === 'cardio_steady' || ex.movementPattern === 'cardio_intervals') return 'cardio'
+  if (Array.isArray(ex.equipment) && ex.equipment.includes('cardio_machine')) return 'cardio'
+  return 'strength'
+}
+
+/**
+ * The unit we display distance in. Inferred from the user's weightUnit since
+ * we don't store a dedicated distanceUnit preference — lbs users get miles,
+ * kg users get km. Storage is the raw number in this unit.
+ */
+export function distanceUnitFor(weightUnit: 'lbs' | 'kg'): 'mi' | 'km' {
+  return weightUnit === 'lbs' ? 'mi' : 'km'
+}
+
+/**
+ * Convert seconds → minutes for display (1 decimal). Used by cardio inputs
+ * where the underlying field is stored as seconds for consistency with
+ * existing target/actualDuration semantics.
+ */
+export function secondsToMinutes(seconds: number | null): number | null {
+  if (seconds == null) return null
+  return Math.round((seconds / 60) * 10) / 10
+}
+
+export function minutesToSeconds(minutes: number | null): number | null {
+  if (minutes == null) return null
+  return Math.round(minutes * 60)
+}
+
+/**
  * Get suggested weight based on last workout performance.
  * Progressive overload: always nudge up unless it was very hard (RPE 9-10).
  */

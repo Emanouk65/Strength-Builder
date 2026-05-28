@@ -342,12 +342,14 @@ export interface SetInstance {
   targetReps: number | null
   targetWeight: number | null
   targetRPE: number | null
-  targetDuration: number | null // Seconds (for timed sets)
+  targetDuration: number | null // Seconds (for timed/cardio sets)
+  targetDistance: number | null // In user's preferred unit (mi for lbs users, km for kg users) — cardio
   // Actuals (logged)
   actualReps: number | null
   actualWeight: number | null
   actualRPE: number | null
   actualDuration: number | null
+  actualDistance: number | null
   // Status
   completed: boolean
   skipped: boolean

@@ -17,6 +17,7 @@ import {
   discardDraft,
   addExerciseToSuperset,
   removeExerciseFromSuperset,
+  resolveExercises,
   SUPERSET_MAX_MEMBERS,
 } from '@/db'
 import { Button } from '@/components/ui'
@@ -123,12 +124,17 @@ export function Plan() {
 
   const exerciseIds = useMemo(() => [...new Set((instances ?? []).map(i => i.exerciseId))], [instances])
 
+  // resolveExercises falls back to the in-memory EXERCISE_LIBRARY whenever an
+  // id is missing from the Dexie `exercises` table — covers returning users
+  // who picked an exercise that wasn't yet seeded in their local copy.
+  // Without this, picking such an exercise would silently drop the card
+  // (the planner `if (!ex) return null` branch) even though the underlying
+  // ExerciseInstance was correctly saved.
   const exercises = useLiveQuery<Exercise[]>(
     async () => {
       if (exerciseIds.length === 0) return []
-      const lib = await db.exercises.where('id').anyOf(exerciseIds).toArray()
-      const custom = await db.customExercises.where('id').anyOf(exerciseIds).toArray()
-      return [...lib, ...custom]
+      const map = await resolveExercises(exerciseIds)
+      return Array.from(map.values())
     },
     [exerciseIds.join('|')]
   )

@@ -14,9 +14,16 @@ import {
   appendSetToExercise,
 } from '@/db'
 import { Button, Badge, Input, Slider } from '@/components/ui'
-import { cn, generateId } from '@/lib/utils'
+import {
+  cn,
+  generateId,
+  getExerciseInputKind,
+  distanceUnitFor,
+  secondsToMinutes,
+  minutesToSeconds,
+} from '@/lib/utils'
 import { BLOCK_CONFIG, ACHIEVEMENTS } from '@/lib/constants'
-import type { BlockType, SetInstance, WorkoutReflection, AchievementId } from '@/lib/types'
+import type { BlockType, SetInstance, WorkoutReflection, AchievementId, Exercise } from '@/lib/types'
 
 
 export function Workout() {
@@ -103,7 +110,7 @@ export function Workout() {
   }
 
   if (workoutData.status === 'completed') {
-    return <WorkoutSummary workout={workoutData} onBack={() => navigate('/history')} />
+    return <WorkoutSummary workout={workoutData} onBack={() => navigate('/history')} weightUnit={weightUnit} />
   }
 
   const currentBlock = workoutData.blocks[currentBlockIndex]
@@ -390,7 +397,7 @@ function ExerciseBlock({
   exerciseInstance: {
     id: string
     exerciseId: string
-    exercise?: { name: string; cues: string[]; primaryMuscles?: string[] }
+    exercise?: Partial<Exercise> & { name: string; cues: string[] }
     sets: SetInstance[]
     notes: string
   }
@@ -400,17 +407,24 @@ function ExerciseBlock({
   onToggleExpand: () => void
   weightUnit: 'lbs' | 'kg'
 }) {
+  const inputKind = getExerciseInputKind(exerciseInstance.exercise)
+  const isCardio = inputKind === 'cardio'
+  const distanceUnit = distanceUnitFor(weightUnit)
+
   const [prWeight, setPrWeight] = useState<number | null>(null)
   useEffect(() => {
+    // PRs are only meaningful for strength lifts.
+    if (isCardio) return
     if (!userId || !exerciseInstance.exerciseId) return
     getBestLift(userId, exerciseInstance.exerciseId).then(record => {
       if (record) setPrWeight(record.weight)
     })
-  }, [userId, exerciseInstance.exerciseId])
+  }, [userId, exerciseInstance.exerciseId, isCardio])
 
   const completedSets = exerciseInstance.sets.filter(s => s.completed).length
   const totalSets = exerciseInstance.sets.length
   const allDone = completedSets === totalSets && totalSets > 0
+  const setLabel = isCardio ? (totalSets === 1 ? 'session' : 'sessions') : 'sets'
 
   const muscles = exerciseInstance.exercise?.primaryMuscles
     ? exerciseInstance.exercise.primaryMuscles.slice(0, 2).map(m => m.replace(/_/g, ' ')).join(' · ')
@@ -445,9 +459,9 @@ function ExerciseBlock({
               {exerciseInstance.exercise?.name || 'Exercise'}
             </h4>
             <p className="text-xs text-muted-foreground truncate mt-0.5">
-              {completedSets}/{totalSets} sets
+              {completedSets}/{totalSets} {setLabel}
               {muscles && ` · ${muscles}`}
-              {prWeight && ` · PR ${prWeight} ${weightUnit}`}
+              {prWeight && !isCardio && ` · PR ${prWeight} ${weightUnit}`}
             </p>
           </div>
         </div>
@@ -486,11 +500,11 @@ function ExerciseBlock({
             className="overflow-hidden"
           >
             <div className="px-4 pb-4 pt-1 border-t border-border/30">
-              {/* Column labels */}
+              {/* Column labels — cardio swaps Weight/Reps/RPE for Time/Distance/RPE */}
               <div className="grid grid-cols-[2.5rem_1fr_1fr_1fr_2.75rem] gap-2 px-2 pb-2 pt-3 text-[10px] uppercase tracking-widest font-semibold text-muted-foreground">
-                <span>Set</span>
-                <span>Weight</span>
-                <span>Reps</span>
+                <span>{isCardio ? '#' : 'Set'}</span>
+                <span>{isCardio ? 'Time (m)' : 'Weight'}</span>
+                <span>{isCardio ? `Dist (${distanceUnit})` : 'Reps'}</span>
                 <span>RPE</span>
                 <span />
               </div>
@@ -502,6 +516,8 @@ function ExerciseBlock({
                     set={set}
                     setNumber={idx + 1}
                     weightUnit={weightUnit}
+                    isCardio={isCardio}
+                    distanceUnit={distanceUnit}
                   />
                 ))}
               </div>
@@ -511,7 +527,7 @@ function ExerciseBlock({
                 className="mt-3 w-full flex items-center justify-center gap-2 h-10 rounded-xl border-2 border-dashed border-border/60 text-xs font-medium text-muted-foreground hover:text-foreground hover:border-foreground/30 hover:bg-secondary/30 transition-colors active:scale-[0.985]"
               >
                 <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
-                Add set
+                {isCardio ? 'Add session' : 'Add set'}
               </button>
 
               {exerciseInstance.exercise?.cues && exerciseInstance.exercise.cues.length > 0 && (
@@ -535,15 +551,23 @@ function SetEditableRow({
   set,
   setNumber,
   weightUnit,
+  isCardio = false,
+  distanceUnit = 'mi',
 }: {
   set: SetInstance
   setNumber: number
   weightUnit: 'lbs' | 'kg'
+  isCardio?: boolean
+  distanceUnit?: 'mi' | 'km'
 }) {
-  // Show actual if logged, otherwise show target as a placeholder hint.
+  // Show actual if logged, otherwise fall back to target as a placeholder hint.
+  // Strength columns track weight + reps; cardio columns track duration + distance.
   const weightDisplay = set.actualWeight ?? set.targetWeight
   const repsDisplay = set.actualReps ?? set.targetReps
   const rpeDisplay = set.actualRPE ?? set.targetRPE
+  // Display duration as minutes (1 decimal) — storage stays in seconds.
+  const durationMinDisplay = secondsToMinutes(set.actualDuration ?? set.targetDuration)
+  const distanceDisplay = set.actualDistance ?? set.targetDistance ?? null
 
   // Local text state for each field — synced FROM DB on changes elsewhere,
   // synced TO DB onBlur. Lets the user type freely without the field snapping
@@ -551,6 +575,8 @@ function SetEditableRow({
   const [weightText, setWeightText] = useState<string>(weightDisplay != null ? String(weightDisplay) : '')
   const [repsText, setRepsText] = useState<string>(repsDisplay != null ? String(repsDisplay) : '')
   const [rpeText, setRpeText] = useState<string>(rpeDisplay != null ? String(rpeDisplay) : '')
+  const [durationText, setDurationText] = useState<string>(durationMinDisplay != null ? String(durationMinDisplay) : '')
+  const [distanceText, setDistanceText] = useState<string>(distanceDisplay != null ? String(distanceDisplay) : '')
 
   // When the DB value changes externally (e.g. another tab), reflect it locally.
   useEffect(() => {
@@ -562,6 +588,12 @@ function SetEditableRow({
   useEffect(() => {
     setRpeText(rpeDisplay != null ? String(rpeDisplay) : '')
   }, [rpeDisplay])
+  useEffect(() => {
+    setDurationText(durationMinDisplay != null ? String(durationMinDisplay) : '')
+  }, [durationMinDisplay])
+  useEffect(() => {
+    setDistanceText(distanceDisplay != null ? String(distanceDisplay) : '')
+  }, [distanceDisplay])
 
   const commit = async (patch: Partial<SetInstance>) => {
     await db.setInstances.update(set.id, patch)
@@ -588,10 +620,28 @@ function SetEditableRow({
     if (!Number.isFinite(n)) return
     return commit({ actualRPE: Math.min(Math.max(n, 1), 10) })
   }
+  const commitDuration = () => {
+    const v = durationText.trim()
+    if (v === '') return commit({ actualDuration: null })
+    const n = parseFloat(v)
+    if (!Number.isFinite(n)) return
+    return commit({ actualDuration: minutesToSeconds(n) })
+  }
+  const commitDistance = () => {
+    const v = distanceText.trim()
+    if (v === '') return commit({ actualDistance: null })
+    const n = parseFloat(v)
+    if (!Number.isFinite(n)) return
+    return commit({ actualDistance: n })
+  }
 
   const toggleComplete = async () => {
     // Persist any in-flight typing first.
-    await Promise.all([commitWeight(), commitReps(), commitRpe()])
+    if (isCardio) {
+      await Promise.all([commitDuration(), commitDistance(), commitRpe()])
+    } else {
+      await Promise.all([commitWeight(), commitReps(), commitRpe()])
+    }
     await db.setInstances.update(set.id, { completed: !set.completed })
   }
 
@@ -609,23 +659,48 @@ function SetEditableRow({
         {setNumber}
       </span>
 
-      <CellInput
-        value={weightText}
-        onChange={setWeightText}
-        onBlur={commitWeight}
-        placeholder={set.targetWeight != null ? String(set.targetWeight) : '–'}
-        ariaLabel={`Set ${setNumber} weight in ${weightUnit}`}
-        completed={set.completed}
-        allowDecimal
-      />
-      <CellInput
-        value={repsText}
-        onChange={setRepsText}
-        onBlur={commitReps}
-        placeholder={set.targetReps != null ? String(set.targetReps) : '–'}
-        ariaLabel={`Set ${setNumber} reps`}
-        completed={set.completed}
-      />
+      {isCardio ? (
+        <>
+          <CellInput
+            value={durationText}
+            onChange={setDurationText}
+            onBlur={commitDuration}
+            placeholder={set.targetDuration != null ? String(secondsToMinutes(set.targetDuration)) : '–'}
+            ariaLabel={`Session ${setNumber} duration in minutes`}
+            completed={set.completed}
+            allowDecimal
+          />
+          <CellInput
+            value={distanceText}
+            onChange={setDistanceText}
+            onBlur={commitDistance}
+            placeholder={set.targetDistance != null ? String(set.targetDistance) : '–'}
+            ariaLabel={`Session ${setNumber} distance in ${distanceUnit}`}
+            completed={set.completed}
+            allowDecimal
+          />
+        </>
+      ) : (
+        <>
+          <CellInput
+            value={weightText}
+            onChange={setWeightText}
+            onBlur={commitWeight}
+            placeholder={set.targetWeight != null ? String(set.targetWeight) : '–'}
+            ariaLabel={`Set ${setNumber} weight in ${weightUnit}`}
+            completed={set.completed}
+            allowDecimal
+          />
+          <CellInput
+            value={repsText}
+            onChange={setRepsText}
+            onBlur={commitReps}
+            placeholder={set.targetReps != null ? String(set.targetReps) : '–'}
+            ariaLabel={`Set ${setNumber} reps`}
+            completed={set.completed}
+          />
+        </>
+      )}
       <CellInput
         value={rpeText}
         onChange={setRpeText}
@@ -964,6 +1039,7 @@ function CelebrationScreen({
 function WorkoutSummary({
   workout,
   onBack,
+  weightUnit,
 }: {
   workout: {
     id: string
@@ -977,7 +1053,7 @@ function WorkoutSummary({
       type: string
       exercises: Array<{
         id: string
-        exercise?: { name: string }
+        exercise?: Partial<Exercise> & { name: string }
         sets: SetInstance[]
       }>
     }>
@@ -991,7 +1067,9 @@ function WorkoutSummary({
     } | null
   }
   onBack: () => void
+  weightUnit: 'lbs' | 'kg'
 }) {
+  const distanceUnit = distanceUnitFor(weightUnit)
   const completedDate = workout.completedAt ? new Date(workout.completedAt) : null
 
   const hasBlockExercises = workout.blocks.some(block =>
@@ -1096,24 +1174,43 @@ function WorkoutSummary({
                 block.exercises.map(exerciseInstance => {
                   const completedSets = exerciseInstance.sets.filter(s => s.completed)
                   if (completedSets.length === 0) return null
+                  const isCardioEx = getExerciseInputKind(exerciseInstance.exercise) === 'cardio'
                   return (
                     <div key={exerciseInstance.id}>
                       <h4 className="font-semibold text-sm mb-2 truncate">{exerciseInstance.exercise?.name || 'Exercise'}</h4>
                       <div className="space-y-1">
-                        {completedSets.map((set, index) => (
-                          <div key={set.id} className="flex items-center justify-between text-sm bg-secondary/40 rounded-xl px-3 py-2">
-                            <span className="text-xs text-muted-foreground font-mono">Set {index + 1}</span>
-                            <div className="flex items-center gap-3">
-                              <span className="font-semibold">{set.actualWeight ?? set.targetWeight ?? '—'} lbs</span>
-                              <span className="text-muted-foreground">× {set.actualReps ?? set.targetReps ?? '—'}</span>
-                              {(set.actualRPE || set.targetRPE) && (
-                                <span className={cn('text-xs font-mono text-muted-foreground')}>
-                                  @{set.actualRPE || set.targetRPE}
-                                </span>
-                              )}
+                        {completedSets.map((set, index) => {
+                          const rpe = set.actualRPE || set.targetRPE
+                          return (
+                            <div key={set.id} className="flex items-center justify-between text-sm bg-secondary/40 rounded-xl px-3 py-2">
+                              <span className="text-xs text-muted-foreground font-mono">
+                                {isCardioEx ? `#${index + 1}` : `Set ${index + 1}`}
+                              </span>
+                              <div className="flex items-center gap-3">
+                                {isCardioEx ? (
+                                  <>
+                                    <span className="font-semibold">
+                                      {secondsToMinutes(set.actualDuration ?? set.targetDuration) ?? '—'} min
+                                    </span>
+                                    {(set.actualDistance ?? set.targetDistance) != null && (
+                                      <span className="text-muted-foreground">
+                                        · {set.actualDistance ?? set.targetDistance} {distanceUnit}
+                                      </span>
+                                    )}
+                                  </>
+                                ) : (
+                                  <>
+                                    <span className="font-semibold">{set.actualWeight ?? set.targetWeight ?? '—'} {weightUnit}</span>
+                                    <span className="text-muted-foreground">× {set.actualReps ?? set.targetReps ?? '—'}</span>
+                                  </>
+                                )}
+                                {rpe && (
+                                  <span className="text-xs font-mono text-muted-foreground">@{rpe}</span>
+                                )}
+                              </div>
                             </div>
-                          </div>
-                        ))}
+                          )
+                        })}
                       </div>
                     </div>
                   )

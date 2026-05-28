@@ -7,17 +7,15 @@ import { EXERCISE_LIBRARY } from './exercises'
 
 /**
  * Initialize the database with seed data
- * Called once on first app load
+ * Called on every app load — bulkPut is idempotent (insert-or-update by id),
+ * so new entries added to EXERCISE_LIBRARY in subsequent app versions land in
+ * Dexie for returning users. Previously this only seeded when the table was
+ * empty, which left returning users unable to look up newly added exercises
+ * (the planner would silently drop their cards and the workout view would
+ * fall back to the literal string "Exercise").
  */
 export async function initializeDatabase(): Promise<void> {
-  // Check if exercises are already seeded
-  const exerciseCount = await db.exercises.count()
-
-  if (exerciseCount === 0) {
-    console.log('Seeding exercise library...')
-    await db.exercises.bulkAdd(EXERCISE_LIBRARY)
-    console.log(`Seeded ${EXERCISE_LIBRARY.length} exercises`)
-  }
+  await db.exercises.bulkPut(EXERCISE_LIBRARY)
 
   // One-time cleanup: drop the legacy QuickLog localStorage session. Drafts now
   // live in Dexie via createDraftWorkout / getDraftWorkout.

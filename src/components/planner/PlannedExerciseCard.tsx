@@ -1,6 +1,12 @@
 import { motion } from 'framer-motion'
 import { NumberStepper } from '@/components/ui'
-import { cn } from '@/lib/utils'
+import {
+  cn,
+  getExerciseInputKind,
+  distanceUnitFor,
+  secondsToMinutes,
+  minutesToSeconds,
+} from '@/lib/utils'
 import type { Exercise, SetInstance } from '@/lib/types'
 
 interface PlannedExerciseCardProps {
@@ -35,20 +41,34 @@ export function PlannedExerciseCard({
   inSuperset,
 }: PlannedExerciseCardProps) {
   const setCount = sets.length
+  const inputKind = getExerciseInputKind(exercise)
+  const isCardio = inputKind === 'cardio'
+  const distanceUnit = distanceUnitFor(weightUnit)
+
   // In planning mode all sets share the same target. Changing one changes all.
   const sharedReps = sets.every(s => s.targetReps === sets[0]?.targetReps) ? sets[0]?.targetReps ?? null : null
   const sharedWeight = sets.every(s => s.targetWeight === sets[0]?.targetWeight) ? sets[0]?.targetWeight ?? null : null
+  const sharedDuration = sets.every(s => s.targetDuration === sets[0]?.targetDuration) ? sets[0]?.targetDuration ?? null : null
+  const sharedDistance = sets.every(s => (s.targetDistance ?? null) === (sets[0]?.targetDistance ?? null)) ? sets[0]?.targetDistance ?? null : null
 
   const patchAll = (patch: Partial<SetInstance>) => {
     sets.forEach(s => onSetPatch(s.id, patch))
   }
 
-  // Summary line: "3 × 8 @ 135 lbs" — at-a-glance readability.
+  // Summary line — at-a-glance readability. Cardio reads naturally as
+  // "30 min · 3 mi"; strength stays as "3 sets · 8 reps · 135 lbs".
   const summary = (() => {
     const parts: string[] = []
-    parts.push(`${setCount} ${setCount === 1 ? 'set' : 'sets'}`)
-    if (sharedReps != null) parts.push(`${sharedReps} reps`)
-    if (sharedWeight != null) parts.push(`${sharedWeight} ${weightUnit}`)
+    if (isCardio) {
+      parts.push(setCount === 1 ? '1 session' : `${setCount} sessions`)
+      const mins = secondsToMinutes(sharedDuration)
+      if (mins != null) parts.push(`${mins} min`)
+      if (sharedDistance != null) parts.push(`${sharedDistance} ${distanceUnit}`)
+    } else {
+      parts.push(`${setCount} ${setCount === 1 ? 'set' : 'sets'}`)
+      if (sharedReps != null) parts.push(`${sharedReps} reps`)
+      if (sharedWeight != null) parts.push(`${sharedWeight} ${weightUnit}`)
+    }
     return parts.join(' · ')
   })()
 
@@ -143,47 +163,97 @@ export function PlannedExerciseCard({
       {/* Divider */}
       <div className="h-px bg-border/40 mx-5" />
 
-      {/* Controls */}
+      {/* Controls — strength vs cardio. Cardio collapses sets/reps/weight into
+          sessions/duration/distance to match how runs, bike rides, and rows
+          are actually tracked. */}
       <div className="px-5 py-4 flex flex-col gap-3">
-        <ControlRow label="Sets">
-          <NumberStepper
-            value={setCount}
-            onChange={(v) => v != null && onSetCountChange(Math.max(1, v))}
-            min={1}
-            max={20}
-            ariaLabel="set count"
-            size="md"
-            pill
-          />
-        </ControlRow>
+        {isCardio ? (
+          <>
+            <ControlRow label={setCount === 1 ? 'Session' : 'Sessions'}>
+              <NumberStepper
+                value={setCount}
+                onChange={(v) => v != null && onSetCountChange(Math.max(1, v))}
+                min={1}
+                max={20}
+                ariaLabel="session count"
+                size="md"
+                pill
+              />
+            </ControlRow>
 
-        <ControlRow label="Reps per set">
-          <NumberStepper
-            value={sharedReps}
-            onChange={(v) => patchAll({ targetReps: v })}
-            min={0}
-            max={500}
-            allowNull
-            ariaLabel="target reps"
-            size="md"
-            pill
-          />
-        </ControlRow>
+            <ControlRow label="Duration (min)">
+              <NumberStepper
+                value={secondsToMinutes(sharedDuration)}
+                onChange={(v) => patchAll({ targetDuration: minutesToSeconds(v) })}
+                min={0}
+                max={600}
+                step={5}
+                allowNull
+                ariaLabel="target duration in minutes"
+                integer={false}
+                size="md"
+                pill
+              />
+            </ControlRow>
 
-        <ControlRow label={`Weight (${weightUnit})`}>
-          <NumberStepper
-            value={sharedWeight}
-            onChange={(v) => patchAll({ targetWeight: v })}
-            min={0}
-            max={2000}
-            step={5}
-            allowNull
-            ariaLabel="target weight"
-            integer={false}
-            size="md"
-            pill
-          />
-        </ControlRow>
+            <ControlRow label={`Distance (${distanceUnit})`}>
+              <NumberStepper
+                value={sharedDistance}
+                onChange={(v) => patchAll({ targetDistance: v })}
+                min={0}
+                max={500}
+                step={0.5}
+                allowNull
+                ariaLabel={`target distance in ${distanceUnit}`}
+                integer={false}
+                size="md"
+                pill
+              />
+            </ControlRow>
+          </>
+        ) : (
+          <>
+            <ControlRow label="Sets">
+              <NumberStepper
+                value={setCount}
+                onChange={(v) => v != null && onSetCountChange(Math.max(1, v))}
+                min={1}
+                max={20}
+                ariaLabel="set count"
+                size="md"
+                pill
+              />
+            </ControlRow>
+
+            <ControlRow label="Reps per set">
+              <NumberStepper
+                value={sharedReps}
+                onChange={(v) => patchAll({ targetReps: v })}
+                min={0}
+                max={500}
+                allowNull
+                ariaLabel="target reps"
+                size="md"
+                pill
+              />
+            </ControlRow>
+
+            <ControlRow label={`Weight (${weightUnit})`}>
+              <NumberStepper
+                value={sharedWeight}
+                onChange={(v) => patchAll({ targetWeight: v })}
+                min={0}
+                max={2000}
+                step={5}
+                allowNull
+                ariaLabel="target weight"
+                integer={false}
+                size="md"
+                pill
+              />
+            </ControlRow>
+          </>
+        )}
       </div>
     </motion.div>
   )

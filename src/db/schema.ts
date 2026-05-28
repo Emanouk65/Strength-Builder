@@ -17,6 +17,47 @@ import type {
   DailyCheckIn,
 } from '@/lib/types'
 import { getLocalDateString, calculateE1RM } from '@/lib/utils'
+import { EXERCISE_LIBRARY } from './exercises'
+
+// In-memory lookup for the seed library — used as a fallback when the Dexie
+// `exercises` table is missing a row (stale data from before a seed upgrade,
+// or a race between adding an exercise and the live query observing it).
+const LIBRARY_BY_ID: Map<string, Exercise> = new Map(EXERCISE_LIBRARY.map(e => [e.id, e]))
+
+/**
+ * Look up an exercise definition for a given id, preferring custom exercises
+ * → seeded library → in-memory library. Returns undefined if truly unknown.
+ */
+export async function resolveExercise(exerciseId: string): Promise<Exercise | undefined> {
+  const lib = await db.exercises.get(exerciseId)
+  if (lib) return lib
+  const custom = await db.customExercises.get(exerciseId)
+  if (custom) return custom
+  return LIBRARY_BY_ID.get(exerciseId)
+}
+
+/**
+ * Batch resolver: returns a Map of id → Exercise. Reads both Dexie tables
+ * once, then fills any gaps from the in-memory library so the planner /
+ * execution views never end up with an undefined exercise.
+ */
+export async function resolveExercises(exerciseIds: string[]): Promise<Map<string, Exercise>> {
+  const out = new Map<string, Exercise>()
+  if (exerciseIds.length === 0) return out
+  const [lib, custom] = await Promise.all([
+    db.exercises.where('id').anyOf(exerciseIds).toArray(),
+    db.customExercises.where('id').anyOf(exerciseIds).toArray(),
+  ])
+  for (const e of lib) out.set(e.id, e)
+  for (const e of custom) out.set(e.id, e)
+  for (const id of exerciseIds) {
+    if (!out.has(id)) {
+      const fallback = LIBRARY_BY_ID.get(id)
+      if (fallback) out.set(id, fallback)
+    }
+  }
+  return out
+}
 
 // ============================================================================
 // Database Schema Definition
@@ -271,12 +312,12 @@ export async function getWorkoutWithDetails(workoutId: string) {
 
   // Batch fetch all exercises needed — merge library + custom so user-defined
   // exercises render with their proper name/muscles in the execution view.
+  // resolveExercises falls back to the in-memory EXERCISE_LIBRARY for any id
+  // missing from Dexie (e.g. a returning user who added an exercise from a
+  // version that wasn't yet seeded). Without this fallback, the execution
+  // view would render the name as the placeholder string "Exercise".
   const exerciseIds = [...new Set(allInstances.map(i => i.exerciseId))]
-  const [libExercises, customExercises] = await Promise.all([
-    db.exercises.where('id').anyOf(exerciseIds).toArray(),
-    db.customExercises.where('id').anyOf(exerciseIds).toArray(),
-  ])
-  const exerciseMap = new Map([...libExercises, ...customExercises].map(e => [e.id, e]))
+  const exerciseMap = await resolveExercises(exerciseIds)
 
   // Batch fetch all sets for all instances
   const instanceIds = allInstances.map(i => i.id)
@@ -1051,15 +1092,39 @@ export async function createDraftWorkout(userId: string): Promise<Workout> {
 /**
  * Add an exercise to a draft workout — creates an ExerciseInstance in the
  * given block (or the first block if not specified) plus N SetInstances.
+ *
+ * Cardio exercises (category 'cardio' or cardio_steady / cardio_intervals
+ * movement patterns) default to a single "set" representing one continuous
+ * session, since "3 sets of a treadmill run" is not what users expect.
  */
 export async function addExerciseToDraft(
   workoutId: string,
   exerciseId: string,
-  options: { sets?: number; targetReps?: number | null; targetWeight?: number | null; blockId?: string } = {}
+  options: {
+    sets?: number
+    targetReps?: number | null
+    targetWeight?: number | null
+    targetDuration?: number | null
+    targetDistance?: number | null
+    blockId?: string
+  } = {}
 ): Promise<string> {
-  const sets = options.sets ?? 3
+  // Pick a sensible default set count: 1 for cardio sessions, 3 for strength.
+  // Cardio is detected from any of: explicit cardio category, cardio movement
+  // patterns, or cardio-machine equipment (covers treadmill, bike, rower, etc.
+  // which are tagged 'conditioning' in the library).
+  const exercise = await resolveExercise(exerciseId)
+  const isCardio =
+    exercise?.category === 'cardio' ||
+    exercise?.movementPattern === 'cardio_steady' ||
+    exercise?.movementPattern === 'cardio_intervals' ||
+    (Array.isArray(exercise?.equipment) && exercise.equipment.includes('cardio_machine'))
+
+  const sets = options.sets ?? (isCardio ? 1 : 3)
   const targetReps = options.targetReps ?? null
   const targetWeight = options.targetWeight ?? null
+  const targetDuration = options.targetDuration ?? null
+  const targetDistance = options.targetDistance ?? null
 
   let blockId = options.blockId
   if (!blockId) {
@@ -1100,11 +1165,13 @@ export async function addExerciseToDraft(
       targetReps,
       targetWeight,
       targetRPE: null,
-      targetDuration: null,
+      targetDuration,
+      targetDistance,
       actualReps: null,
       actualWeight: null,
       actualRPE: null,
       actualDuration: null,
+      actualDistance: null,
       completed: false,
       skipped: false,
       painSignal: null,
@@ -1194,10 +1261,12 @@ export async function appendSetToExercise(instanceId: string): Promise<string | 
     targetWeight: template.targetWeight,
     targetRPE: template.targetRPE,
     targetDuration: template.targetDuration,
+    targetDistance: template.targetDistance ?? null,
     actualReps: null,
     actualWeight: null,
     actualRPE: null,
     actualDuration: null,
+    actualDistance: null,
     completed: false,
     skipped: false,
     painSignal: null,
@@ -1243,10 +1312,12 @@ export async function setExerciseSetCount(
           targetWeight: defaults.targetWeight ?? template?.targetWeight ?? null,
           targetRPE: template?.targetRPE ?? null,
           targetDuration: template?.targetDuration ?? null,
+          targetDistance: template?.targetDistance ?? null,
           actualReps: null,
           actualWeight: null,
           actualRPE: null,
           actualDuration: null,
+          actualDistance: null,
           completed: false,
           skipped: false,
           painSignal: null,
