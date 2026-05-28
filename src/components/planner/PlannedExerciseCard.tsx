@@ -79,8 +79,12 @@ export function PlannedExerciseCard({
   return (
     <motion.div
       layout
-      initial={{ opacity: 0, y: 12 }}
-      animate={{ opacity: 1, y: 0 }}
+      // Always mount at full opacity. The y-slide gives a nice entrance for
+      // newly added cards without ever rendering existing cards as dim/dark
+      // when the planner is re-entered (which used to happen if the parent
+      // route's opacity transition was interrupted mid-fade).
+      initial={{ y: 12 }}
+      animate={{ y: 0 }}
       exit={{ opacity: 0, scale: 0.97 }}
       transition={{ duration: 0.22, ease: [0.4, 0, 0.2, 1] }}
       className={cn(

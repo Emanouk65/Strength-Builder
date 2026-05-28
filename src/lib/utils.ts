@@ -288,12 +288,19 @@ export function sleep(ms: number): Promise<void> {
 // Motion presets — shared framer-motion variants/transitions
 // ============================================================================
 
-/** Standard page fade + subtle slide-in. */
+/**
+ * Standard page transition — a tiny slide with no opacity change. Opacity-
+ * based page fades caused the planner to render at low opacity on re-entry:
+ * AnimatePresence with `mode="wait"` could leave the new page's enter
+ * animation stuck mid-fade after a rapid navigate away & back, so cards
+ * appeared dim even though they had loaded. Sliding instead of fading keeps
+ * the visual polish without ever hiding the content.
+ */
 export const pageMotion = {
-  initial: { opacity: 0, y: 8 },
-  animate: { opacity: 1, y: 0 },
-  exit: { opacity: 0, y: -8 },
-  transition: { duration: 0.22, ease: [0.4, 0, 0.2, 1] as const },
+  initial: { y: 8 },
+  animate: { y: 0 },
+  exit: { y: -8 },
+  transition: { duration: 0.18, ease: [0.4, 0, 0.2, 1] as const },
 }
 
 /** Container that staggers its children. Use with `cardMotion` on the children. */

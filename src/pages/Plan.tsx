@@ -47,6 +47,16 @@ export function Plan() {
   const [discardConfirm, setDiscardConfirm] = useState(false)
   const initRef = useRef(false)
 
+  // Defensive: ensure body scroll is unlocked whenever the planner mounts.
+  // If a Sheet (picker/schedule) was open when the user navigated away, an
+  // edge-case unmount order could leave `document.body.style.overflow = 'hidden'`
+  // behind, and on re-entry the page renders with a frozen scroll surface and
+  // the leftover backdrop-blur attribution from the sheet's overlay can make
+  // the content read as "really dark". Clearing here makes re-entry seamless.
+  useEffect(() => {
+    document.body.style.overflow = ''
+  }, [])
+
   // Bootstrap: when URL has no workoutId, find or create a draft and
   // redirect to the canonical /plan/:id URL. createDraftWorkout is atomic
   // (transactional) — returns the existing draft if one exists, never creates
@@ -339,8 +349,10 @@ export function Plan() {
       <main className="max-w-lg mx-auto px-4 py-5">
         {isEmpty ? (
           <motion.div
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
+            // Slide-only entrance — never fade through opacity so the empty
+            // state stays readable even if the parent transition is mid-fade.
+            initial={{ y: 12 }}
+            animate={{ y: 0 }}
             transition={{ duration: 0.3 }}
             className="flex flex-col items-center justify-center py-16 text-center"
           >
