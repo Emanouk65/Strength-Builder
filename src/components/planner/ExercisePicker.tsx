@@ -71,13 +71,13 @@ export function ExercisePicker({ open, onClose, onPick, alreadyAddedIds = [] }: 
     <Sheet
       open={open}
       onClose={onClose}
-      className="max-h-[92vh] flex flex-col"
+      className="flex flex-col"
       noDrag
       noPadding
     >
-      <div className="flex flex-col h-full">
+      <div className="flex flex-col h-full min-h-0">
         {/* Pinned header — search bar + category chips never scroll away */}
-        <div className="px-5 pt-3 pb-3 border-b border-border/30 bg-card sticky top-0 z-10">
+        <div className="px-5 pt-3 pb-3 border-b border-border/30 bg-card z-10 shrink-0">
           <div className="flex items-center gap-3 mb-3">
             <h2 className="text-base font-semibold text-foreground flex-1">Add exercise</h2>
             <button
@@ -144,11 +144,12 @@ export function ExercisePicker({ open, onClose, onPick, alreadyAddedIds = [] }: 
           </div>
         </div>
 
-        {/* Scrollable results */}
+        {/* Scrollable results — flex-1 + min-h-0 lets the Sheet's keyboard-aware
+            max-height naturally shrink this area, so results never sit behind
+            the on-screen keyboard. */}
         <div
           ref={scrollContainerRef}
-          className="flex-1 overflow-y-auto px-5 py-3"
-          style={{ maxHeight: 'calc(92vh - 165px)' }}
+          className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 py-3"
         >
           {results.length === 0 ? (
             <div className="text-sm text-muted-foreground text-center py-12">

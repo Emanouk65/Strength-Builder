@@ -169,9 +169,33 @@ export function Plan() {
     }, 400)
   }
 
+  // Track instance count growth so we can scroll the new card into view after
+  // a user-initiated add. Once the list overflows the viewport, the new card
+  // gets inserted below the fold and the user assumes the add silently failed.
+  const prevInstancesCountRef = useRef(0)
+  const justAddedRef = useRef(false)
+  useEffect(() => {
+    const count = instances?.length ?? 0
+    if (justAddedRef.current && count > prevInstancesCountRef.current) {
+      justAddedRef.current = false
+      // Two RAFs: let React commit + framer-motion start the enter animation
+      // before measuring scrollHeight.
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          window.scrollTo({
+            top: document.documentElement.scrollHeight,
+            behavior: 'smooth',
+          })
+        })
+      })
+    }
+    prevInstancesCountRef.current = count
+  }, [instances])
+
   // Handlers
   const handleAddExercise = useCallback(async (ex: Exercise) => {
     if (!workoutId) return
+    justAddedRef.current = true
     await addExerciseToDraft(workoutId, ex.id, { sets: 3 })
   }, [workoutId])
 
