@@ -1830,6 +1830,42 @@ export async function saveWorkoutAsTemplate(workoutId: string, name: string): Pr
   return id
 }
 
+/**
+ * Save a specific set of exercise instances (e.g. one superset group) as a
+ * template. When more than one instance is given they're grouped into a single
+ * superset so re-adding them recreates the group. Order follows instanceIds.
+ */
+export async function saveInstancesAsTemplate(instanceIds: string[], name: string): Promise<string> {
+  const exercises: TemplateExercise[] = []
+  const asSuperset = instanceIds.length > 1
+
+  for (const instanceId of instanceIds) {
+    const inst = await db.exerciseInstances.get(instanceId)
+    if (!inst) continue
+    const sets = await db.setInstances.where('exerciseInstanceId').equals(instanceId).sortBy('setNumber')
+    const first = sets[0]
+    exercises.push({
+      exerciseId: inst.exerciseId,
+      setCount: Math.max(1, sets.length),
+      targetReps: first?.targetReps ?? null,
+      targetWeight: first?.targetWeight ?? null,
+      targetRPE: first?.targetRPE ?? null,
+      targetDuration: first?.targetDuration ?? null,
+      targetDistance: first?.targetDistance ?? null,
+      groupKey: asSuperset ? 0 : null,
+    })
+  }
+
+  const id = crypto.randomUUID()
+  await db.workoutTemplates.add({
+    id,
+    name: name.trim() || 'Untitled template',
+    createdAt: new Date(),
+    exercises,
+  })
+  return id
+}
+
 /** List saved templates, most recent first. */
 export async function getWorkoutTemplates(): Promise<WorkoutTemplate[]> {
   const all = await db.workoutTemplates.toArray()

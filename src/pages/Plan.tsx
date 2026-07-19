@@ -19,6 +19,7 @@ import {
   removeExerciseFromSuperset,
   resolveExercises,
   saveWorkoutAsTemplate,
+  saveInstancesAsTemplate,
   getWorkoutTemplates,
   applyTemplateToDraft,
   deleteWorkoutTemplate,
@@ -311,6 +312,14 @@ export function Plan() {
     setTemplatesOpen(false)
   }, [workoutId])
 
+  const handleSaveGroupTemplate = useCallback(async (memberIds: string[]) => {
+    const name = window.prompt('Name this superset template', 'Finisher superset')
+    if (name == null) return
+    await saveInstancesAsTemplate(memberIds, name)
+    setTemplateFlash(true)
+    setTimeout(() => setTemplateFlash(false), 2200)
+  }, [])
+
   // Wait for the full chain to resolve before deciding empty vs populated.
   // Otherwise the page briefly flashes "Build your workout" on a draft that
   // already has exercises, because instances is undefined while loading.
@@ -441,11 +450,14 @@ export function Plan() {
                       <span className="text-[10px] font-semibold uppercase tracking-widest text-foreground/70">
                         Superset · {group.members.length} exercises
                       </span>
-                      {group.members.length < SUPERSET_MAX_MEMBERS && (
-                        <span className="text-[10px] text-muted-foreground">
-                          Up to {SUPERSET_MAX_MEMBERS - group.members.length} more
-                        </span>
-                      )}
+                      <button
+                        onClick={() => handleSaveGroupTemplate(group.members.map(m => m.id))}
+                        className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground hover:text-foreground transition-colors"
+                        title="Save this superset as a reusable template"
+                      >
+                        <svg viewBox="0 0 24 24" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z" /></svg>
+                        Save
+                      </button>
                     </div>
                     {group.members.map((inst) => {
                       const ex = exerciseMap.get(inst.exerciseId)
