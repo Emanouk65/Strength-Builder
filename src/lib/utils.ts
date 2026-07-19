@@ -271,6 +271,42 @@ export function getSuggestedWeight(
 }
 
 /**
+ * Round a weight to the smallest plate increment for the unit (5 lb / 2.5 kg).
+ */
+export function roundToIncrement(value: number, unit: 'lbs' | 'kg'): number {
+  const inc = unit === 'kg' ? 2.5 : 5
+  return Math.round(value / inc) * inc
+}
+
+/**
+ * Generate a ramp-up warmup scheme leading into a working weight. Returns
+ * ascending sets (lightest first), each rounded to the plate increment, never
+ * below an empty bar and never at/above the working weight.
+ */
+export function generateWarmupSets(
+  workingWeight: number,
+  unit: 'lbs' | 'kg'
+): { weight: number; reps: number }[] {
+  if (!Number.isFinite(workingWeight) || workingWeight <= 0) return []
+  const bar = unit === 'kg' ? 20 : 45
+  const scheme = [
+    { pct: 0.4, reps: 8 },
+    { pct: 0.6, reps: 5 },
+    { pct: 0.75, reps: 3 },
+    { pct: 0.9, reps: 1 },
+  ]
+  const out: { weight: number; reps: number }[] = []
+  for (const s of scheme) {
+    let w = roundToIncrement(workingWeight * s.pct, unit)
+    if (w < bar) w = bar
+    if (w >= workingWeight) continue
+    if (out.length && out[out.length - 1].weight === w) continue
+    out.push({ weight: w, reps: s.reps })
+  }
+  return out
+}
+
+/**
  * Get local date string in YYYY-MM-DD format (avoids UTC timezone issues with toISOString)
  */
 export function getLocalDateString(date = new Date()): string {

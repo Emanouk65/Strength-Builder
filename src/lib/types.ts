@@ -228,6 +228,8 @@ export interface Workout {
   workoutType: WorkoutType
   dayOfWeek: number // 0-6
   scheduledDate: Date
+  /** First time the workout was opened for execution — anchors the session clock. */
+  startedAt?: Date | null
   completedAt: Date | null
   /**
    * - draft: in-progress planning, autosaved, not yet scheduled
@@ -589,8 +591,37 @@ export interface AppSettings {
   theme: 'dark' | 'light' | 'system'
   hapticFeedback: boolean
   restTimerSound: boolean
+  restTimerEnabled: boolean
   defaultRestTime: number // Seconds
   showRPEGuide: boolean
+}
+
+/** Persisted singleton settings row (keyed by a fixed id). */
+export interface StoredAppSettings extends AppSettings {
+  id: string
+}
+
+// ----------------------------------------------------------------------------
+// Workout Templates (reusable session blueprints)
+// ----------------------------------------------------------------------------
+
+export interface TemplateExercise {
+  exerciseId: string
+  setCount: number
+  targetReps: number | null
+  targetWeight: number | null
+  targetRPE: number | null
+  targetDuration: number | null
+  targetDistance: number | null
+  /** Exercises sharing the same non-null groupKey form a superset in the template. */
+  groupKey: number | null
+}
+
+export interface WorkoutTemplate {
+  id: string
+  name: string
+  createdAt: Date
+  exercises: TemplateExercise[]
 }
 
 // ----------------------------------------------------------------------------

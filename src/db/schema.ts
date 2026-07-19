@@ -15,8 +15,13 @@ import type {
   UserAchievement,
   AchievementId,
   DailyCheckIn,
+  AppSettings,
+  StoredAppSettings,
+  WorkoutTemplate,
+  TemplateExercise,
 } from '@/lib/types'
-import { getLocalDateString, calculateE1RM } from '@/lib/utils'
+import { getLocalDateString, calculateE1RM, getExerciseInputKind, generateWarmupSets } from '@/lib/utils'
+import { computeReadinessScore, recommendedSetWeight, type ReadinessResult } from '@/lib/readiness'
 import { EXERCISE_LIBRARY } from './exercises'
 
 // In-memory lookup for the seed library — used as a fallback when the Dexie
@@ -80,6 +85,8 @@ export class ForgeDB extends Dexie {
   userAchievements!: EntityTable<UserAchievement, 'id'>
   dailyCheckIns!: EntityTable<DailyCheckIn, 'id'>
   customExercises!: EntityTable<Exercise, 'id'>
+  appSettings!: EntityTable<StoredAppSettings, 'id'>
+  workoutTemplates!: EntityTable<WorkoutTemplate, 'id'>
 
   constructor() {
     super('ForgeDB')
@@ -236,6 +243,13 @@ export class ForgeDB extends Dexie {
         if (inst.supersetGroupId === undefined) inst.supersetGroupId = null
       })
     })
+
+    // v8 — adds app settings (haptics/sound/rest timer) and reusable workout
+    // templates. Both are new tables; no data migration required.
+    this.version(8).stores({
+      appSettings: 'id',
+      workoutTemplates: 'id, name, createdAt',
+    })
   }
 }
 
@@ -251,6 +265,33 @@ export const db = new ForgeDB()
  */
 export async function getCurrentUser(): Promise<User | undefined> {
   return db.users.toCollection().first()
+}
+
+// ----------------------------------------------------------------------------
+// App Settings (singleton row)
+// ----------------------------------------------------------------------------
+
+const APP_SETTINGS_ID = 'app'
+
+export const DEFAULT_APP_SETTINGS: AppSettings = {
+  theme: 'dark',
+  hapticFeedback: true,
+  restTimerSound: true,
+  restTimerEnabled: true,
+  defaultRestTime: 90,
+  showRPEGuide: true,
+}
+
+/** Read app settings, falling back to defaults for any missing fields. */
+export async function getAppSettings(): Promise<AppSettings> {
+  const stored = await db.appSettings.get(APP_SETTINGS_ID)
+  return { ...DEFAULT_APP_SETTINGS, ...(stored ?? {}) }
+}
+
+/** Patch app settings (creating the row if it doesn't exist yet). */
+export async function updateAppSettings(patch: Partial<AppSettings>): Promise<void> {
+  const current = await getAppSettings()
+  await db.appSettings.put({ ...current, ...patch, id: APP_SETTINGS_ID })
 }
 
 /**
@@ -466,6 +507,20 @@ export async function getExerciseSubstitutes(
 }
 
 /**
+ * Get the current PR record for an exercise.
+ *
+ * IMPORTANT: `isPersonalRecord` is filtered in JS, NOT via `.where()`. IndexedDB
+ * cannot use boolean values as index keys, so `.where({ isPersonalRecord: true })`
+ * throws an invalid-key error at runtime. That bug previously made saving and
+ * reading PRs fail entirely (the throw aborted the insert in addManualLiftRecord
+ * and rejected getAllPRs). Query only string-indexed fields, then filter here.
+ */
+async function getCurrentPR(userId: string, exerciseId: string): Promise<LiftRecord | undefined> {
+  const records = await db.liftRecords.where({ userId, exerciseId }).toArray()
+  return records.find(r => r.isPersonalRecord)
+}
+
+/**
  * Record a personal record
  */
 export async function checkAndRecordPR(
@@ -477,9 +532,7 @@ export async function checkAndRecordPR(
 ): Promise<boolean> {
   const estimated1RM = calculateE1RM(weight, reps)
 
-  const existingPR = await db.liftRecords
-    .where({ userId, exerciseId, isPersonalRecord: true })
-    .first()
+  const existingPR = await getCurrentPR(userId, exerciseId)
 
   const isPR = !existingPR || estimated1RM > existingPR.estimated1RM
 
@@ -641,9 +694,8 @@ export async function checkIronWillAchievement(
 export async function checkPRAchievements(
   userId: string
 ): Promise<AchievementId[]> {
-  const prCount = await db.liftRecords
-    .where({ userId, isPersonalRecord: true })
-    .count()
+  const records = await db.liftRecords.where('userId').equals(userId).toArray()
+  const prCount = records.filter(r => r.isPersonalRecord).length
 
   const unlockedAchievements: AchievementId[] = []
 
@@ -709,9 +761,10 @@ export async function getUserAchievements(
 export async function getUnseenAchievements(
   userId: string
 ): Promise<UserAchievement[]> {
-  return db.userAchievements
-    .where({ userId: userId, seen: false })
-    .toArray()
+  // `seen` is filtered in JS — IndexedDB can't use booleans as index keys, so
+  // `.where({ seen: false })` throws an invalid-key error (see getCurrentPR).
+  const achievements = await db.userAchievements.where('userId').equals(userId).toArray()
+  return achievements.filter(a => !a.seen)
 }
 
 /**
@@ -947,13 +1000,82 @@ export async function getLastWorkoutForExercise(
   return null
 }
 
+export interface ExerciseHistorySession {
+  workoutId: string
+  date: Date
+  sets: {
+    weight: number | null
+    reps: number | null
+    rpe: number | null
+    duration: number | null
+    distance: number | null
+  }[]
+}
+
+/**
+ * Get recent logged sessions for an exercise (most recent first) — powers the
+ * per-exercise history sheet. Each session lists its completed sets.
+ */
+export async function getExerciseHistory(
+  userId: string,
+  exerciseId: string,
+  limit = 8
+): Promise<ExerciseHistorySession[]> {
+  const workouts = await db.workouts
+    .where('userId')
+    .equals(userId)
+    .filter(w => w.status === 'completed' && w.completedAt != null)
+    .toArray()
+
+  workouts.sort((a, b) => {
+    const at = a.completedAt ? new Date(a.completedAt).getTime() : 0
+    const bt = b.completedAt ? new Date(b.completedAt).getTime() : 0
+    return bt - at
+  })
+
+  const sessions: ExerciseHistorySession[] = []
+  for (const workout of workouts) {
+    if (sessions.length >= limit) break
+
+    const blocks = await db.workoutBlocks.where('workoutId').equals(workout.id).toArray()
+    if (blocks.length === 0) continue
+    const blockIds = blocks.map(b => b.id)
+
+    const instances = await db.exerciseInstances
+      .where('blockId').anyOf(blockIds)
+      .filter(i => i.exerciseId === exerciseId)
+      .toArray()
+    if (instances.length === 0) continue
+
+    const instanceIds = instances.map(i => i.id)
+    const setRows = await db.setInstances
+      .where('exerciseInstanceId').anyOf(instanceIds)
+      .filter(s => s.completed && s.setType !== 'warmup')
+      .toArray()
+    if (setRows.length === 0) continue
+
+    setRows.sort((a, b) => a.setNumber - b.setNumber)
+    sessions.push({
+      workoutId: workout.id,
+      date: workout.completedAt as Date,
+      sets: setRows.map(s => ({
+        weight: s.actualWeight ?? s.targetWeight,
+        reps: s.actualReps ?? s.targetReps,
+        rpe: s.actualRPE ?? s.targetRPE,
+        duration: s.actualDuration ?? s.targetDuration,
+        distance: s.actualDistance ?? s.targetDistance ?? null,
+      })),
+    })
+  }
+
+  return sessions
+}
+
 /**
  * Get best lift record for an exercise (for weight suggestions)
  */
 export async function getBestLift(userId: string, exerciseId: string): Promise<LiftRecord | undefined> {
-  return db.liftRecords
-    .where({ userId, exerciseId, isPersonalRecord: true })
-    .first()
+  return getCurrentPR(userId, exerciseId)
 }
 
 /**
@@ -968,9 +1090,7 @@ export async function addManualLiftRecord(
   const estimated1RM = calculateE1RM(weight, reps)
 
   // Check if this beats the existing PR
-  const existingPR = await db.liftRecords
-    .where({ userId, exerciseId, isPersonalRecord: true })
-    .first()
+  const existingPR = await getCurrentPR(userId, exerciseId)
 
   const isPR = !existingPR || estimated1RM > existingPR.estimated1RM
 
@@ -1000,9 +1120,8 @@ export async function addManualLiftRecord(
  * Get all PRs for a user (one per exercise)
  */
 export async function getAllPRs(userId: string): Promise<LiftRecord[]> {
-  return db.liftRecords
-    .where({ userId, isPersonalRecord: true })
-    .toArray()
+  const records = await db.liftRecords.where('userId').equals(userId).toArray()
+  return records.filter(r => r.isPersonalRecord)
 }
 
 // ============================================================================
@@ -1282,6 +1401,59 @@ export async function appendSetToExercise(instanceId: string): Promise<string | 
 }
 
 /**
+ * Prepend ramp-up warmup sets to an exercise, computed from a working weight.
+ * Existing sets are renumbered to sit after the warmups. No-op if the scheme is
+ * empty (e.g. no working weight yet). Returns the number of warmups added.
+ */
+export async function addWarmupSets(
+  instanceId: string,
+  workingWeight: number,
+  unit: 'lbs' | 'kg'
+): Promise<number> {
+  const scheme = generateWarmupSets(workingWeight, unit)
+  if (scheme.length === 0) return 0
+
+  return db.transaction('rw', [db.setInstances, db.exerciseInstances, db.workoutBlocks, db.workouts], async () => {
+    const existing = await db.setInstances
+      .where('exerciseInstanceId').equals(instanceId)
+      .sortBy('setNumber')
+
+    // Shift existing sets down to make room for the warmups at the front.
+    for (let i = existing.length - 1; i >= 0; i--) {
+      await db.setInstances.update(existing[i].id, { setNumber: existing[i].setNumber + scheme.length })
+    }
+
+    const warmupRows: SetInstance[] = scheme.map((w, i) => ({
+      id: crypto.randomUUID(),
+      exerciseInstanceId: instanceId,
+      setNumber: i + 1,
+      setType: 'warmup',
+      targetReps: w.reps,
+      targetWeight: w.weight,
+      targetRPE: null,
+      targetDuration: null,
+      targetDistance: null,
+      actualReps: null,
+      actualWeight: null,
+      actualRPE: null,
+      actualDuration: null,
+      actualDistance: null,
+      completed: false,
+      skipped: false,
+      painSignal: null,
+    }))
+    await db.setInstances.bulkAdd(warmupRows)
+
+    const instance = await db.exerciseInstances.get(instanceId)
+    if (instance) {
+      const block = await db.workoutBlocks.get(instance.blockId)
+      if (block) await db.workouts.update(block.workoutId, { lastEditedAt: new Date() })
+    }
+    return scheme.length
+  })
+}
+
+/**
  * Change the number of working sets for an exercise instance. Adds or removes
  * trailing SetInstances to reach the target count.
  */
@@ -1426,11 +1598,141 @@ export async function scheduleDraft(workoutId: string, scheduledDate: Date, name
 export async function promoteToInProgress(workoutId: string): Promise<void> {
   const w = await db.workouts.get(workoutId)
   if (!w) return
-  if (w.status === 'in_progress' || w.status === 'completed') return
-  await db.workouts.update(workoutId, {
-    status: 'in_progress',
-    lastEditedAt: new Date(),
+  if (w.status === 'completed') return
+
+  // Backfill startedAt even for workouts already in_progress (e.g. sessions
+  // started before the session clock existed) so the elapsed clock has an anchor.
+  const patch: Partial<Workout> = {}
+  if (w.status !== 'in_progress') {
+    patch.status = 'in_progress'
+    patch.lastEditedAt = new Date()
+  }
+  if (!w.startedAt) patch.startedAt = new Date()
+
+  if (Object.keys(patch).length > 0) {
+    await db.workouts.update(workoutId, patch)
+  }
+}
+
+/**
+ * Compute today's readiness for a user from their most recent daily check-in
+ * plus a light recent-training-load signal. Returns null if there's no check-in
+ * today (caller decides how to handle — typically: don't scale, prompt to log).
+ * Fully local — no API calls.
+ */
+export async function getReadiness(userId: string): Promise<ReadinessResult | null> {
+  const checkIn = await getTodaysCheckIn(userId)
+  if (!checkIn) return null
+
+  // Recent fatigue proxy: workouts completed in the last ~2 days.
+  const twoDaysAgo = new Date()
+  twoDaysAgo.setDate(twoDaysAgo.getDate() - 2)
+  const recentWorkouts = await db.workouts
+    .where('userId').equals(userId)
+    .filter(w => w.status === 'completed' && w.completedAt != null && new Date(w.completedAt) >= twoDaysAgo)
+    .count()
+
+  return computeReadinessScore({
+    sleepQuality: checkIn.sleepQuality,
+    sleepHours: checkIn.sleepHours,
+    stress: checkIn.stress,
+    soreness: checkIn.soreness,
+    energy: checkIn.energy,
+    motivation: checkIn.motivation,
+    recentWorkouts2d: recentWorkouts,
   })
+}
+
+/**
+ * Prefill each strength set's target weight/reps from the user's last session
+ * for that exercise. On a high-readiness day this applies RPE-aware progressive
+ * overload; on a low-readiness day loads are held or trimmed (see
+ * recommendedSetWeight). Only fills targets that are currently empty (null) —
+ * never overwrites weights the user explicitly planned. Cardio is skipped.
+ * Intended to run once, when a workout is first opened for execution.
+ */
+export async function prefillTargetsFromHistory(workoutId: string): Promise<void> {
+  const workout = await db.workouts.get(workoutId)
+  if (!workout) return
+  const userId = workout.userId
+
+  const blocks = await db.workoutBlocks.where('workoutId').equals(workoutId).toArray()
+  if (blocks.length === 0) return
+  const blockIds = blocks.map(b => b.id)
+
+  const instances = await db.exerciseInstances.where('blockId').anyOf(blockIds).toArray()
+  if (instances.length === 0) return
+
+  const readiness = await getReadiness(userId)
+  const recommendation = readiness?.recommendation ?? null
+
+  const exerciseMap = await resolveExercises([...new Set(instances.map(i => i.exerciseId))])
+
+  for (const inst of instances) {
+    const exercise = exerciseMap.get(inst.exerciseId)
+    if (getExerciseInputKind(exercise) === 'cardio') continue
+
+    const last = await getLastWorkoutForExercise(userId, inst.exerciseId)
+    if (!last) continue
+
+    const sets = await db.setInstances.where('exerciseInstanceId').equals(inst.id).toArray()
+    for (const s of sets) {
+      if (s.completed || s.setType === 'warmup') continue
+      const patch: Partial<SetInstance> = {}
+      if (s.targetReps == null) patch.targetReps = last.reps
+      if (s.targetWeight == null) {
+        const targetReps = s.targetReps ?? last.reps
+        patch.targetWeight = recommendedSetWeight(recommendation, last, targetReps ?? undefined)
+      }
+      if (Object.keys(patch).length > 0) {
+        await db.setInstances.update(s.id, patch)
+      }
+    }
+  }
+}
+
+/**
+ * Finalize a completed workout: compute the real session duration from
+ * startedAt → completedAt, and record a lift record (best completed set per
+ * strength exercise) so PRs and last-session memory populate. Returns any newly
+ * unlocked PR achievements so the caller can surface them. Best-effort — a
+ * failure here should never block workout completion.
+ */
+export async function recordWorkoutResults(workoutId: string): Promise<AchievementId[]> {
+  const details = await getWorkoutWithDetails(workoutId)
+  if (!details) return []
+  const userId = details.userId
+
+  // Real session duration (minutes), anchored on startedAt.
+  const startMs = details.startedAt ? new Date(details.startedAt).getTime() : null
+  const endMs = details.completedAt ? new Date(details.completedAt).getTime() : Date.now()
+  if (startMs != null && endMs > startMs) {
+    const minutes = Math.max(1, Math.round((endMs - startMs) / 60000))
+    await db.workouts.update(workoutId, { totalDuration: minutes })
+  }
+
+  // Best completed strength set per exercise → one lift record each.
+  const bestByExercise = new Map<string, { weight: number; reps: number; rpe: number | null; e1rm: number }>()
+  for (const block of details.blocks) {
+    for (const ex of block.exercises) {
+      if (getExerciseInputKind(ex.exercise) === 'cardio') continue
+      for (const s of ex.sets) {
+        if (s.setType === 'warmup') continue
+        if (!s.completed || s.actualWeight == null || s.actualReps == null) continue
+        const e1rm = calculateE1RM(s.actualWeight, s.actualReps)
+        const cur = bestByExercise.get(ex.exerciseId)
+        if (!cur || e1rm > cur.e1rm) {
+          bestByExercise.set(ex.exerciseId, { weight: s.actualWeight, reps: s.actualReps, rpe: s.actualRPE, e1rm })
+        }
+      }
+    }
+  }
+
+  for (const [exerciseId, best] of bestByExercise) {
+    await checkAndRecordPR(userId, exerciseId, best.weight, best.reps, best.rpe)
+  }
+
+  return checkPRAchievements(userId)
 }
 
 /**
@@ -1479,4 +1781,96 @@ export async function getScheduledWorkouts(
       return t >= rangeStart.getTime() && t < rangeEnd.getTime()
     })
     .sortBy('scheduledDate')
+}
+
+// ============================================================================
+// Workout Templates
+// ============================================================================
+
+/**
+ * Serialize a workout's exercises (across all blocks, in order) into a reusable
+ * template — set counts, shared targets, and superset grouping are preserved.
+ */
+export async function saveWorkoutAsTemplate(workoutId: string, name: string): Promise<string> {
+  const details = await getWorkoutWithDetails(workoutId)
+  if (!details) throw new Error(`Workout ${workoutId} not found`)
+
+  // Map each real superset group id → a small stable integer key for the template.
+  const groupKeys = new Map<string, number>()
+  const templateExercises: TemplateExercise[] = []
+
+  for (const block of details.blocks) {
+    for (const ex of block.exercises) {
+      const first = ex.sets[0]
+      let groupKey: number | null = null
+      if (ex.supersetGroupId) {
+        if (!groupKeys.has(ex.supersetGroupId)) groupKeys.set(ex.supersetGroupId, groupKeys.size)
+        groupKey = groupKeys.get(ex.supersetGroupId)!
+      }
+      templateExercises.push({
+        exerciseId: ex.exerciseId,
+        setCount: Math.max(1, ex.sets.length),
+        targetReps: first?.targetReps ?? null,
+        targetWeight: first?.targetWeight ?? null,
+        targetRPE: first?.targetRPE ?? null,
+        targetDuration: first?.targetDuration ?? null,
+        targetDistance: first?.targetDistance ?? null,
+        groupKey,
+      })
+    }
+  }
+
+  const id = crypto.randomUUID()
+  await db.workoutTemplates.add({
+    id,
+    name: name.trim() || 'Untitled template',
+    createdAt: new Date(),
+    exercises: templateExercises,
+  })
+  return id
+}
+
+/** List saved templates, most recent first. */
+export async function getWorkoutTemplates(): Promise<WorkoutTemplate[]> {
+  const all = await db.workoutTemplates.toArray()
+  return all.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+}
+
+export async function deleteWorkoutTemplate(templateId: string): Promise<void> {
+  await db.workoutTemplates.delete(templateId)
+}
+
+/**
+ * Populate an existing draft workout from a template — adds each template
+ * exercise (with its targets + set count) and re-creates superset groups.
+ */
+export async function applyTemplateToDraft(workoutId: string, templateId: string): Promise<void> {
+  const template = await db.workoutTemplates.get(templateId)
+  if (!template) return
+
+  // Add every exercise first, tracking the instance id created per group key.
+  const groupMembers = new Map<number, string[]>()
+  for (const te of template.exercises) {
+    const instId = await addExerciseToDraft(workoutId, te.exerciseId, {
+      sets: te.setCount,
+      targetReps: te.targetReps,
+      targetWeight: te.targetWeight,
+      targetDuration: te.targetDuration,
+      targetDistance: te.targetDistance,
+    })
+    if (te.groupKey != null) {
+      const list = groupMembers.get(te.groupKey) ?? []
+      list.push(instId)
+      groupMembers.set(te.groupKey, list)
+    }
+  }
+
+  // Re-link supersets: one Dexie group id per template group key.
+  for (const members of groupMembers.values()) {
+    if (members.length < 2) continue
+    let groupId: string | null = null
+    for (const instId of members) {
+      groupId = await addExerciseToSuperset(instId, groupId)
+    }
+  }
 }

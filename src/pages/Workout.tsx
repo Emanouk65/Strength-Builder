@@ -10,10 +10,20 @@ import {
   checkTimeBasedAchievements,
   checkIronWillAchievement,
   getBestLift,
+  getLastWorkoutForExercise,
+  getReadiness,
+  getAppSettings,
+  getExerciseHistory,
+  addWarmupSets,
   promoteToInProgress,
+  prefillTargetsFromHistory,
+  recordWorkoutResults,
   appendSetToExercise,
+  type ExerciseHistorySession,
 } from '@/db'
-import { Button, Badge, Input, Slider } from '@/components/ui'
+import { readinessDisplay, type ReadinessResult } from '@/lib/readiness'
+import { triggerHaptic, playChime } from '@/lib/feedback'
+import { Button, Badge, Input, Slider, Sheet } from '@/components/ui'
 import {
   cn,
   generateId,
@@ -33,9 +43,19 @@ export function Workout() {
   const [showReflection, setShowReflection] = useState(false)
   const [showExitConfirm, setShowExitConfirm] = useState(false)
 
-  // Which exercise is currently expanded in the execution view. Auto-advances
-  // when the active exercise becomes fully complete; user can override by tap.
-  const [expandedExerciseId, setExpandedExerciseId] = useState<string | null>(null)
+  // Which exercises are currently expanded in the execution view. A set, not a
+  // single id, so an entire superset can be open at once. Auto-advances when the
+  // active exercise becomes fully complete; user can override by tap.
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
+
+  const toggleExpand = (id: string) => {
+    setExpandedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
 
   const workoutData = useLiveQuery(
     async () => { if (!workoutId) return null; return getWorkoutWithDetails(workoutId) },
@@ -45,27 +65,59 @@ export function Workout() {
   const user = useLiveQuery(() => getCurrentUser(), [])
   const weightUnit = user?.preferences.weightUnit ?? 'lbs'
 
+  // Local readiness (no API). Re-computes when today's check-in changes.
+  const readiness = useLiveQuery(
+    async () => (user ? getReadiness(user.id) : null),
+    [user]
+  )
+
+  const settings = useLiveQuery(() => getAppSettings(), [])
+
+  // Rest timer — a target end-timestamp (ms) plus the total for the ring.
+  const [rest, setRest] = useState<{ endsAt: number; total: number } | null>(null)
+  const settingsRef = useRef(settings)
+  settingsRef.current = settings
+
+  // Called when a set is checked complete: buzz and (optionally) start rest.
+  const handleSetCompleted = () => {
+    const s = settingsRef.current
+    triggerHaptic(s?.hapticFeedback ?? true)
+    if (s?.restTimerEnabled ?? true) {
+      const total = s?.defaultRestTime ?? 90
+      setRest({ endsAt: Date.now() + total * 1000, total })
+    }
+  }
+
   // The "active" exercise is the first one with at least one incomplete set.
   // When that changes (because the user just finished all sets in the previous
-  // active exercise), we move the expansion to follow.
+  // active exercise), we move the expansion to follow. If the active exercise is
+  // part of a superset, we expand every member of that group so all its boxes
+  // are open together — easier to check off as you alternate between them.
   const lastActiveRef = useRef<string | null>(null)
   useEffect(() => {
     if (!workoutData) return
     const exercises = workoutData.blocks.flatMap(b => b.exercises)
-    const nextActive = exercises.find(ex => ex.sets.some(s => !s.completed))?.id ?? null
+    const active = exercises.find(ex => ex.sets.some(s => !s.completed)) ?? null
+    const nextActiveId = active?.id ?? null
 
-    // First time we ever see data, expand the active exercise.
-    if (lastActiveRef.current === null && expandedExerciseId === null) {
-      lastActiveRef.current = nextActive
-      setExpandedExerciseId(nextActive)
+    // Only recompute expansion when the active exercise actually changes, so we
+    // don't clobber the user's manual open/close toggles on every re-render.
+    if (nextActiveId === lastActiveRef.current) return
+    lastActiveRef.current = nextActiveId
+
+    if (!active) {
+      setExpandedIds(new Set())
       return
     }
-    // When the active exercise actually changes (auto-advance trigger), follow.
-    if (nextActive !== lastActiveRef.current) {
-      lastActiveRef.current = nextActive
-      setExpandedExerciseId(nextActive)
+    if (active.supersetGroupId) {
+      const members = exercises
+        .filter(ex => ex.supersetGroupId === active.supersetGroupId)
+        .map(ex => ex.id)
+      setExpandedIds(new Set(members))
+    } else {
+      setExpandedIds(new Set([active.id]))
     }
-  }, [workoutData, expandedExerciseId])
+  }, [workoutData])
 
   // Guard against re-firing the status flip on every live-query re-emit.
   // Without this, the very update below triggers a re-fetch → re-render →
@@ -73,11 +125,16 @@ export function Workout() {
   const promotedRef = useRef<string | null>(null)
   useEffect(() => {
     if (!workoutData) return
-    const s = workoutData.status
-    if (s !== 'planned' && s !== 'draft') return
+    if (workoutData.status === 'completed') return
     if (promotedRef.current === workoutData.id) return
     promotedRef.current = workoutData.id
-    promoteToInProgress(workoutData.id)
+
+    // Prefill recommended targets only on the very first start (not on revisits
+    // of an already in-progress session, where the user may have adjusted them).
+    const isFirstStart = workoutData.status === 'planned' || workoutData.status === 'draft'
+    promoteToInProgress(workoutData.id).then(() => {
+      if (isFirstStart) prefillTargetsFromHistory(workoutData.id)
+    })
   }, [workoutData])
 
   if (!workoutId) {
@@ -225,6 +282,9 @@ export function Workout() {
               </svg>
             </button>
 
+            {/* Elapsed session clock */}
+            <ElapsedClock startedAt={workoutData.startedAt} />
+
             {/* Set counter */}
             <div className="flex items-center gap-1 bg-secondary/60 px-3 py-1.5 rounded-full">
               <span className="text-sm font-bold text-foreground">{totalSetsCompleted}</span>
@@ -262,6 +322,9 @@ export function Workout() {
           </div>
         </div>
       )}
+
+      {/* Readiness banner — local, no API. Adjusts prefilled loads. */}
+      <ReadinessBanner readiness={readiness} onLogCheckIn={() => navigate('/check-in')} />
 
       {/* Current Block */}
       <div className="p-4">
@@ -302,8 +365,9 @@ export function Workout() {
                         key={g.instance.id}
                         exerciseInstance={g.instance}
                         userId={workoutData.userId}
-                        isExpanded={expandedExerciseId === g.instance.id}
-                        onToggleExpand={() => setExpandedExerciseId(prev => prev === g.instance.id ? null : g.instance.id)}
+                        isExpanded={expandedIds.has(g.instance.id)}
+                        onToggleExpand={() => toggleExpand(g.instance.id)}
+                        onSetCompleted={handleSetCompleted}
                         weightUnit={weightUnit}
                       />
                     )
@@ -323,8 +387,9 @@ export function Workout() {
                           key={m.id}
                           exerciseInstance={m}
                           userId={workoutData.userId}
-                          isExpanded={expandedExerciseId === m.id}
-                          onToggleExpand={() => setExpandedExerciseId(prev => prev === m.id ? null : m.id)}
+                          isExpanded={expandedIds.has(m.id)}
+                          onToggleExpand={() => toggleExpand(m.id)}
+                          onSetCompleted={handleSetCompleted}
                           weightUnit={weightUnit}
                         />
                       ))}
@@ -379,6 +444,207 @@ export function Workout() {
           ))}
         </div>
       </div>
+
+      {/* Rest timer — floats above content while a set rests */}
+      {rest && (
+        <RestTimer
+          endsAt={rest.endsAt}
+          total={rest.total}
+          soundEnabled={settings?.restTimerSound ?? true}
+          hapticEnabled={settings?.hapticFeedback ?? true}
+          onAdjust={(delta) => setRest(r => r ? { ...r, endsAt: Math.max(Date.now(), r.endsAt + delta * 1000), total: Math.max(15, r.total + delta) } : r)}
+          onDismiss={() => setRest(null)}
+        />
+      )}
+    </div>
+  )
+}
+
+// ============================================================================
+// Rest timer — countdown pill fixed above the bottom, auto-started on set done
+// ============================================================================
+
+function RestTimer({
+  endsAt,
+  total,
+  soundEnabled,
+  hapticEnabled,
+  onAdjust,
+  onDismiss,
+}: {
+  endsAt: number
+  total: number
+  soundEnabled: boolean
+  hapticEnabled: boolean
+  onAdjust: (deltaSeconds: number) => void
+  onDismiss: () => void
+}) {
+  const [now, setNow] = useState(() => Date.now())
+  const firedRef = useRef(false)
+
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 250)
+    return () => clearInterval(id)
+  }, [])
+
+  // Reset the "fired" latch whenever the target time changes (new rest / adjust).
+  useEffect(() => { firedRef.current = false }, [endsAt])
+
+  const remainingMs = endsAt - now
+  const remaining = Math.max(0, Math.ceil(remainingMs / 1000))
+
+  // Chime + buzz exactly once when the countdown hits zero.
+  useEffect(() => {
+    if (remainingMs <= 0 && !firedRef.current) {
+      firedRef.current = true
+      playChime(soundEnabled)
+      triggerHaptic(hapticEnabled, [80, 40, 80])
+    }
+  }, [remainingMs, soundEnabled, hapticEnabled])
+
+  const mins = Math.floor(remaining / 60)
+  const secs = remaining % 60
+  const label = `${mins}:${String(secs).padStart(2, '0')}`
+  const done = remaining === 0
+  const pct = total > 0 ? Math.max(0, Math.min(100, (remaining / total) * 100)) : 0
+
+  return (
+    <div className="fixed inset-x-0 bottom-4 z-40 px-4 pointer-events-none">
+      <div className={cn(
+        'pointer-events-auto max-w-lg mx-auto rounded-2xl border shadow-2xl backdrop-blur-xl px-3 py-2.5 flex items-center gap-3',
+        done ? 'bg-success/20 border-success/40' : 'bg-card/95 border-border/60'
+      )}>
+        <button
+          onClick={() => onAdjust(-15)}
+          className="h-9 w-9 shrink-0 rounded-lg bg-secondary/80 text-foreground font-semibold text-xs hover:bg-secondary transition-colors"
+          aria-label="Subtract 15 seconds"
+        >
+          −15
+        </button>
+
+        <div className="flex-1 min-w-0">
+          <div className="flex items-baseline justify-between">
+            <span className="text-[10px] uppercase tracking-widest font-semibold text-muted-foreground">
+              {done ? 'Rest done' : 'Rest'}
+            </span>
+            <span className="text-lg font-bold tabular-nums leading-none">{label}</span>
+          </div>
+          <div className="mt-1.5 h-1.5 rounded-full bg-secondary overflow-hidden">
+            <div
+              className={cn('h-full rounded-full transition-all duration-200', done ? 'bg-success' : 'bg-primary')}
+              style={{ width: `${done ? 100 : pct}%` }}
+            />
+          </div>
+        </div>
+
+        <button
+          onClick={() => onAdjust(15)}
+          className="h-9 w-9 shrink-0 rounded-lg bg-secondary/80 text-foreground font-semibold text-xs hover:bg-secondary transition-colors"
+          aria-label="Add 15 seconds"
+        >
+          +15
+        </button>
+        <button
+          onClick={onDismiss}
+          className={cn(
+            'h-9 px-3 shrink-0 rounded-lg font-semibold text-xs transition-colors',
+            done ? 'bg-success text-background' : 'bg-foreground text-background hover:bg-foreground/90'
+          )}
+          aria-label="Dismiss rest timer"
+        >
+          {done ? 'Done' : 'Skip'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ============================================================================
+// Elapsed session clock — live count-up from when the workout was started
+// ============================================================================
+
+function formatElapsed(ms: number): string {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000))
+  const hours = Math.floor(totalSeconds / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const seconds = totalSeconds % 60
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return hours > 0 ? `${hours}:${pad(minutes)}:${pad(seconds)}` : `${minutes}:${pad(seconds)}`
+}
+
+function ElapsedClock({ startedAt }: { startedAt?: Date | null }) {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(id)
+  }, [])
+
+  if (!startedAt) return null
+  const elapsed = now - new Date(startedAt).getTime()
+
+  return (
+    <div
+      className="flex items-center gap-1.5 bg-secondary/60 px-3 py-1.5 rounded-full"
+      aria-label="Elapsed workout time"
+    >
+      <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 text-muted-foreground" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="12" cy="12" r="9" />
+        <path d="M12 7v5l3 2" />
+      </svg>
+      <span className="text-sm font-bold text-foreground tabular-nums">{formatElapsed(elapsed)}</span>
+    </div>
+  )
+}
+
+// ============================================================================
+// Readiness banner — surfaces the local readiness score + how loads adjusted
+// ============================================================================
+
+function ReadinessBanner({
+  readiness,
+  onLogCheckIn,
+}: {
+  readiness: ReadinessResult | null | undefined
+  onLogCheckIn: () => void
+}) {
+  // Still loading the live query.
+  if (readiness === undefined) return null
+
+  // No check-in today — nudge to log one, non-blocking.
+  if (readiness === null) {
+    return (
+      <div className="px-4 pt-3">
+        <button
+          onClick={onLogCheckIn}
+          className="w-full flex items-center gap-2.5 rounded-xl bg-secondary/50 border border-border/40 px-4 py-2.5 text-left hover:bg-secondary/70 transition-colors"
+        >
+          <span className="text-lg">🧭</span>
+          <span className="text-sm text-muted-foreground flex-1">
+            Log a quick check-in for readiness-based weights
+          </span>
+          <svg viewBox="0 0 24 24" className="h-4 w-4 text-muted-foreground shrink-0" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M9 18l6-6-6-6" /></svg>
+        </button>
+      </div>
+    )
+  }
+
+  const { label, tone } = readinessDisplay(readiness.recommendation)
+  const toneClasses: Record<typeof tone, string> = {
+    good: 'bg-success/15 border-success/25 text-success',
+    neutral: 'bg-primary/15 border-primary/25 text-primary',
+    warn: 'bg-rpe-high/15 border-rpe-high/30 text-rpe-high',
+    bad: 'bg-destructive/15 border-destructive/30 text-destructive',
+  }
+
+  return (
+    <div className="px-4 pt-3 animate-slide-up">
+      <div className={cn('rounded-xl border px-4 py-2.5', toneClasses[tone])}>
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-bold">Readiness {readiness.overallScore}</span>
+          <span className="text-xs font-semibold uppercase tracking-wider opacity-80">· {label}</span>
+        </div>
+        <p className="text-xs mt-0.5 text-foreground/70">{readiness.reasoning}</p>
+      </div>
     </div>
   )
 }
@@ -392,6 +658,7 @@ function ExerciseBlock({
   userId,
   isExpanded,
   onToggleExpand,
+  onSetCompleted,
   weightUnit,
 }: {
   exerciseInstance: {
@@ -405,20 +672,41 @@ function ExerciseBlock({
   /** Controlled by parent so it can auto-advance between exercises. */
   isExpanded: boolean
   onToggleExpand: () => void
+  /** Fired when a set is newly checked complete (drives rest timer + haptics). */
+  onSetCompleted: () => void
   weightUnit: 'lbs' | 'kg'
 }) {
   const inputKind = getExerciseInputKind(exerciseInstance.exercise)
   const isCardio = inputKind === 'cardio'
   const distanceUnit = distanceUnitFor(weightUnit)
 
+  const [historyOpen, setHistoryOpen] = useState(false)
+
+  // Highest planned/logged working weight — the anchor for warmup generation.
+  const workingWeight = exerciseInstance.sets
+    .filter(s => s.setType !== 'warmup')
+    .reduce((max, s) => Math.max(max, s.actualWeight ?? s.targetWeight ?? 0), 0)
+  const hasWarmup = exerciseInstance.sets.some(s => s.setType === 'warmup')
+
+  // Per-row labels: warmups read W1, W2…; working sets renumber from 1.
+  let warmCount = 0
+  let workCount = 0
+  const rowLabels = exerciseInstance.sets.map(s => {
+    if (s.setType === 'warmup') { warmCount += 1; return `W${warmCount}` }
+    workCount += 1
+    return `${workCount}`
+  })
+
   const [prWeight, setPrWeight] = useState<number | null>(null)
+  const [lastSession, setLastSession] = useState<{ weight: number; reps: number; rpe: number | null } | null>(null)
   useEffect(() => {
-    // PRs are only meaningful for strength lifts.
+    // PRs and last-session recall are only meaningful for strength lifts.
     if (isCardio) return
     if (!userId || !exerciseInstance.exerciseId) return
     getBestLift(userId, exerciseInstance.exerciseId).then(record => {
       if (record) setPrWeight(record.weight)
     })
+    getLastWorkoutForExercise(userId, exerciseInstance.exerciseId).then(setLastSession)
   }, [userId, exerciseInstance.exerciseId, isCardio])
 
   const completedSets = exerciseInstance.sets.filter(s => s.completed).length
@@ -490,6 +778,20 @@ function ExerciseBlock({
         </div>
       </button>
 
+      {/* History sheet */}
+      {userId && (
+        <ExerciseHistorySheet
+          open={historyOpen}
+          onClose={() => setHistoryOpen(false)}
+          userId={userId}
+          exerciseId={exerciseInstance.exerciseId}
+          exerciseName={exerciseInstance.exercise?.name || 'Exercise'}
+          weightUnit={weightUnit}
+          isCardio={isCardio}
+          distanceUnit={distanceUnit}
+        />
+      )}
+
       <AnimatePresence initial={false}>
         {isExpanded && (
           <motion.div
@@ -500,6 +802,21 @@ function ExerciseBlock({
             className="overflow-hidden"
           >
             <div className="px-4 pb-4 pt-1 border-t border-border/30">
+              {/* Last-session recall — the weights below are pre-filled from this
+                  with progressive overload applied; shown so you can adjust. */}
+              {lastSession && !isCardio && (
+                <div className="mt-3 flex items-center gap-1.5 rounded-lg bg-secondary/40 px-3 py-2 text-xs text-muted-foreground">
+                  <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 shrink-0" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M3 3v5h5" />
+                    <path d="M3.05 13A9 9 0 1 0 6 5.3L3 8" />
+                  </svg>
+                  <span>
+                    Last time: <span className="font-semibold text-foreground/80">{lastSession.weight} {weightUnit} × {lastSession.reps}</span>
+                    {lastSession.rpe != null && <span> @{lastSession.rpe}</span>}
+                  </span>
+                </div>
+              )}
+
               {/* Column labels — cardio swaps Weight/Reps/RPE for Time/Distance/RPE */}
               <div className="grid grid-cols-[2.5rem_1fr_1fr_1fr_2.75rem] gap-2 px-2 pb-2 pt-3 text-[10px] uppercase tracking-widest font-semibold text-muted-foreground">
                 <span>{isCardio ? '#' : 'Set'}</span>
@@ -514,20 +831,41 @@ function ExerciseBlock({
                   <SetEditableRow
                     key={set.id}
                     set={set}
-                    setNumber={idx + 1}
+                    displayLabel={rowLabels[idx]}
                     weightUnit={weightUnit}
                     isCardio={isCardio}
                     distanceUnit={distanceUnit}
+                    onSetCompleted={onSetCompleted}
                   />
                 ))}
               </div>
 
+              <div className="mt-3 flex gap-2">
+                <button
+                  onClick={() => appendSetToExercise(exerciseInstance.id)}
+                  className="flex-1 flex items-center justify-center gap-2 h-10 rounded-xl border-2 border-dashed border-border/60 text-xs font-medium text-muted-foreground hover:text-foreground hover:border-foreground/30 hover:bg-secondary/30 transition-colors active:scale-[0.985]"
+                >
+                  <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
+                  {isCardio ? 'Add session' : 'Add set'}
+                </button>
+
+                {!isCardio && !hasWarmup && workingWeight > 0 && (
+                  <button
+                    onClick={() => addWarmupSets(exerciseInstance.id, workingWeight, weightUnit)}
+                    className="flex-1 flex items-center justify-center gap-2 h-10 rounded-xl border-2 border-dashed border-border/60 text-xs font-medium text-muted-foreground hover:text-foreground hover:border-foreground/30 hover:bg-secondary/30 transition-colors active:scale-[0.985]"
+                  >
+                    <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M12 2v6M4.9 7l4.2 2.4M19.1 7l-4.2 2.4M12 22a7 7 0 0 0 7-7 7 7 0 0 0-14 0 7 7 0 0 0 7 7z" /></svg>
+                    Add warm-up
+                  </button>
+                )}
+              </div>
+
               <button
-                onClick={() => appendSetToExercise(exerciseInstance.id)}
-                className="mt-3 w-full flex items-center justify-center gap-2 h-10 rounded-xl border-2 border-dashed border-border/60 text-xs font-medium text-muted-foreground hover:text-foreground hover:border-foreground/30 hover:bg-secondary/30 transition-colors active:scale-[0.985]"
+                onClick={() => setHistoryOpen(true)}
+                className="mt-2 w-full flex items-center justify-center gap-2 h-9 rounded-xl text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-secondary/40 transition-colors"
               >
-                <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
-                {isCardio ? 'Add session' : 'Add set'}
+                <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M3 3v5h5" /><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8" /><path d="M12 7v5l3 2" /></svg>
+                View history
               </button>
 
               {exerciseInstance.exercise?.cues && exerciseInstance.exercise.cues.length > 0 && (
@@ -544,22 +882,102 @@ function ExerciseBlock({
 }
 
 // ============================================================================
+// Exercise history sheet — last several logged sessions for one exercise
+// ============================================================================
+
+function ExerciseHistorySheet({
+  open,
+  onClose,
+  userId,
+  exerciseId,
+  exerciseName,
+  weightUnit,
+  isCardio,
+  distanceUnit,
+}: {
+  open: boolean
+  onClose: () => void
+  userId: string
+  exerciseId: string
+  exerciseName: string
+  weightUnit: 'lbs' | 'kg'
+  isCardio: boolean
+  distanceUnit: 'mi' | 'km'
+}) {
+  const [sessions, setSessions] = useState<ExerciseHistorySession[] | null>(null)
+
+  useEffect(() => {
+    if (!open) return
+    setSessions(null)
+    getExerciseHistory(userId, exerciseId, 10).then(setSessions)
+  }, [open, userId, exerciseId])
+
+  return (
+    <Sheet open={open} onClose={onClose} title={exerciseName}>
+      {sessions === null ? (
+        <div className="py-10 flex justify-center">
+          <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+        </div>
+      ) : sessions.length === 0 ? (
+        <p className="py-10 text-center text-sm text-muted-foreground">
+          No history yet — complete a session with this exercise and it'll show up here.
+        </p>
+      ) : (
+        <div className="space-y-4 pb-2">
+          {sessions.map(session => (
+            <div key={session.workoutId}>
+              <p className="text-[10px] uppercase tracking-widest text-muted-foreground mb-1.5">
+                {new Date(session.date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+              </p>
+              <div className="space-y-1">
+                {session.sets.map((s, i) => (
+                  <div key={i} className="flex items-center justify-between text-sm bg-secondary/40 rounded-lg px-3 py-1.5">
+                    <span className="text-xs text-muted-foreground font-mono">{i + 1}</span>
+                    <div className="flex items-center gap-2">
+                      {isCardio ? (
+                        <span className="font-semibold tabular-nums">
+                          {secondsToMinutes(s.duration) ?? '—'} min
+                          {s.distance != null && <span className="text-muted-foreground font-normal"> · {s.distance} {distanceUnit}</span>}
+                        </span>
+                      ) : (
+                        <>
+                          <span className="font-semibold tabular-nums">{s.weight ?? '—'} {weightUnit}</span>
+                          <span className="text-muted-foreground">× {s.reps ?? '—'}</span>
+                        </>
+                      )}
+                      {s.rpe != null && <span className="text-xs font-mono text-muted-foreground">@{s.rpe}</span>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </Sheet>
+  )
+}
+
+// ============================================================================
 // Set Row — single tappable row with plain text inputs (no steppers)
 // ============================================================================
 
 function SetEditableRow({
   set,
-  setNumber,
+  displayLabel,
   weightUnit,
   isCardio = false,
   distanceUnit = 'mi',
+  onSetCompleted,
 }: {
   set: SetInstance
-  setNumber: number
+  displayLabel: string
   weightUnit: 'lbs' | 'kg'
   isCardio?: boolean
   distanceUnit?: 'mi' | 'km'
+  onSetCompleted?: () => void
 }) {
+  const isWarmup = set.setType === 'warmup'
   // Show actual if logged, otherwise fall back to target as a placeholder hint.
   // Strength columns track weight + reps; cardio columns track duration + distance.
   const weightDisplay = set.actualWeight ?? set.targetWeight
@@ -636,27 +1054,38 @@ function SetEditableRow({
   }
 
   const toggleComplete = async () => {
+    const willComplete = !set.completed
     // Persist any in-flight typing first.
     if (isCardio) {
       await Promise.all([commitDuration(), commitDistance(), commitRpe()])
     } else {
       await Promise.all([commitWeight(), commitReps(), commitRpe()])
     }
-    await db.setInstances.update(set.id, { completed: !set.completed })
+    await db.setInstances.update(set.id, { completed: willComplete })
+    // Warmups don't trigger a rest — you flow straight into the next ramp set.
+    if (willComplete && !isWarmup) onSetCompleted?.()
+  }
+
+  // Progression signal: did a completed working set hit its target reps?
+  let progression: 'up' | 'down' | null = null
+  if (set.completed && !isCardio && !isWarmup && set.targetReps != null && set.actualReps != null) {
+    progression = set.actualReps >= set.targetReps ? 'up' : 'down'
   }
 
   return (
     <div
       className={cn(
         'grid grid-cols-[2.5rem_1fr_1fr_1fr_2.75rem] gap-2 items-center rounded-xl px-2 py-1.5 transition-colors',
-        set.completed ? 'bg-foreground/10' : 'bg-secondary/30'
+        isWarmup ? 'bg-rpe-moderate/10' : set.completed ? 'bg-foreground/10' : 'bg-secondary/30'
       )}
     >
       <span className={cn(
-        'text-sm font-mono tabular-nums text-center',
-        set.completed ? 'text-foreground/80' : 'text-muted-foreground'
+        'text-sm font-mono tabular-nums text-center flex items-center justify-center gap-0.5',
+        isWarmup ? 'text-rpe-moderate' : set.completed ? 'text-foreground/80' : 'text-muted-foreground'
       )}>
-        {setNumber}
+        {displayLabel}
+        {progression === 'up' && <span className="text-success text-[10px] leading-none" title="Hit target reps">▲</span>}
+        {progression === 'down' && <span className="text-rpe-high text-[10px] leading-none" title="Under target reps">▼</span>}
       </span>
 
       {isCardio ? (
@@ -666,7 +1095,7 @@ function SetEditableRow({
             onChange={setDurationText}
             onBlur={commitDuration}
             placeholder={set.targetDuration != null ? String(secondsToMinutes(set.targetDuration)) : '–'}
-            ariaLabel={`Session ${setNumber} duration in minutes`}
+            ariaLabel={`Session ${displayLabel} duration in minutes`}
             completed={set.completed}
             allowDecimal
           />
@@ -675,7 +1104,7 @@ function SetEditableRow({
             onChange={setDistanceText}
             onBlur={commitDistance}
             placeholder={set.targetDistance != null ? String(set.targetDistance) : '–'}
-            ariaLabel={`Session ${setNumber} distance in ${distanceUnit}`}
+            ariaLabel={`Session ${displayLabel} distance in ${distanceUnit}`}
             completed={set.completed}
             allowDecimal
           />
@@ -687,7 +1116,7 @@ function SetEditableRow({
             onChange={setWeightText}
             onBlur={commitWeight}
             placeholder={set.targetWeight != null ? String(set.targetWeight) : '–'}
-            ariaLabel={`Set ${setNumber} weight in ${weightUnit}`}
+            ariaLabel={`Set ${displayLabel} weight in ${weightUnit}`}
             completed={set.completed}
             allowDecimal
           />
@@ -696,7 +1125,7 @@ function SetEditableRow({
             onChange={setRepsText}
             onBlur={commitReps}
             placeholder={set.targetReps != null ? String(set.targetReps) : '–'}
-            ariaLabel={`Set ${setNumber} reps`}
+            ariaLabel={`Set ${displayLabel} reps`}
             completed={set.completed}
           />
         </>
@@ -706,7 +1135,7 @@ function SetEditableRow({
         onChange={setRpeText}
         onBlur={commitRpe}
         placeholder={set.targetRPE != null ? String(set.targetRPE) : '–'}
-        ariaLabel={`Set ${setNumber} RPE`}
+        ariaLabel={`Set ${displayLabel} RPE`}
         completed={set.completed}
       />
 
@@ -822,6 +1251,9 @@ function ReflectionForm({
     await db.workoutReflections.add(reflectionData)
     await db.workouts.update(workoutId, { status: 'completed', completedAt: new Date() })
 
+    // Record real duration + lift PRs from the completed sets.
+    const prAchievements = await recordWorkoutResults(workoutId)
+
     const user = await getCurrentUser()
     if (user) {
       const streakAchievements = await updateStreakOnWorkoutComplete(user.id)
@@ -834,6 +1266,7 @@ function ReflectionForm({
         newAchievements: [
           ...streakAchievements,
           ...timeAchievements,
+          ...prAchievements,
           ...(ironWillUnlocked ? ['iron_will' as AchievementId] : []),
         ],
       })
@@ -920,6 +1353,7 @@ function ReflectionForm({
             onClick={async () => {
               // Skip means: still mark the workout completed, just no journal entry.
               await db.workouts.update(workoutId, { status: 'completed', completedAt: new Date() })
+              await recordWorkoutResults(workoutId)
               const u = await getCurrentUser()
               if (u) await updateStreakOnWorkoutComplete(u.id)
               onComplete()

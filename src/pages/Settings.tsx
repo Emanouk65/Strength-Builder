@@ -1,18 +1,41 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { db, getCurrentUser, clearUserData, exportUserData } from '@/db'
+import { db, getCurrentUser, clearUserData, exportUserData, importUserData, getAppSettings, updateAppSettings } from '@/db'
 import { Button, Card, CardContent, CardHeader, CardTitle, Input, Badge } from '@/components/ui'
 import { cn } from '@/lib/utils'
-import type { UserPreferences } from '@/lib/types'
+import type { UserPreferences, AppSettings } from '@/lib/types'
 
 export function Settings() {
   const navigate = useNavigate()
   const localUser = useLiveQuery(() => getCurrentUser())
 
+  const settings = useLiveQuery(() => getAppSettings(), [])
+
   const [apiKey, setApiKey] = useState('')
   const [isSaving, setIsSaving] = useState(false)
   const [showApiKey, setShowApiKey] = useState(false)
+  const [importError, setImportError] = useState<string | null>(null)
+  const importInputRef = useRef<HTMLInputElement>(null)
+
+  const handleToggleSetting = async <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => {
+    await updateAppSettings({ [key]: value } as Partial<AppSettings>)
+  }
+
+  const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    e.target.value = '' // allow re-selecting the same file later
+    if (!file) return
+    setImportError(null)
+    try {
+      const text = await file.text()
+      await importUserData(text)
+      window.location.reload()
+    } catch (err) {
+      console.error('Import failed:', err)
+      setImportError('That file could not be imported. Make sure it is a FORGE backup.')
+    }
+  }
 
   if (!localUser) {
     return (
@@ -281,6 +304,56 @@ export function Settings() {
           </CardContent>
         </Card>
 
+        {/* Feedback & Rest Timer */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Feedback & Rest Timer</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-1">
+            <ToggleRow
+              label="Haptic feedback"
+              hint="Vibrate on set completion and timer end"
+              checked={settings?.hapticFeedback ?? true}
+              onChange={(v) => handleToggleSetting('hapticFeedback', v)}
+            />
+            <ToggleRow
+              label="Rest timer"
+              hint="Auto-start a countdown after each set"
+              checked={settings?.restTimerEnabled ?? true}
+              onChange={(v) => handleToggleSetting('restTimerEnabled', v)}
+            />
+            <ToggleRow
+              label="Timer sound"
+              hint="Chime when the rest timer ends"
+              checked={settings?.restTimerSound ?? true}
+              onChange={(v) => handleToggleSetting('restTimerSound', v)}
+            />
+
+            <div className="pt-3">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm text-muted-foreground">Default rest</span>
+                <span className="font-medium">{settings?.defaultRestTime ?? 90}s</span>
+              </div>
+              <div className="flex gap-2">
+                {([60, 90, 120, 180] as const).map((sec) => (
+                  <button
+                    key={sec}
+                    onClick={() => handleToggleSetting('defaultRestTime', sec)}
+                    className={cn(
+                      'flex-1 py-2 rounded-lg text-sm transition-colors',
+                      (settings?.defaultRestTime ?? 90) === sec
+                        ? 'bg-primary text-primary-foreground'
+                        : 'bg-secondary text-muted-foreground hover:text-foreground'
+                    )}
+                  >
+                    {sec}s
+                  </button>
+                ))}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
         {/* Data Management */}
         <Card>
           <CardHeader>
@@ -290,11 +363,24 @@ export function Settings() {
             <Button variant="outline" className="w-full" onClick={handleExport}>
               Export Data
             </Button>
+            <input
+              ref={importInputRef}
+              type="file"
+              accept="application/json,.json"
+              className="hidden"
+              onChange={handleImportFile}
+            />
+            <Button variant="outline" className="w-full" onClick={() => importInputRef.current?.click()}>
+              Import / Restore
+            </Button>
+            {importError && (
+              <p className="text-xs text-destructive text-center">{importError}</p>
+            )}
             <Button variant="destructive" className="w-full" onClick={handleReset}>
               Reset All Data
             </Button>
             <p className="text-xs text-muted-foreground text-center">
-              Data is stored locally on your device. Export regularly to backup.
+              Data is stored locally on your device. Export regularly to backup — importing replaces your current data.
             </p>
           </CardContent>
         </Card>
@@ -310,6 +396,44 @@ export function Settings() {
           </CardContent>
         </Card>
       </div>
+    </div>
+  )
+}
+
+function ToggleRow({
+  label,
+  hint,
+  checked,
+  onChange,
+}: {
+  label: string
+  hint?: string
+  checked: boolean
+  onChange: (v: boolean) => void
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3 py-2">
+      <div className="min-w-0">
+        <p className="text-sm text-foreground">{label}</p>
+        {hint && <p className="text-xs text-muted-foreground mt-0.5">{hint}</p>}
+      </div>
+      <button
+        role="switch"
+        aria-checked={checked}
+        aria-label={label}
+        onClick={() => onChange(!checked)}
+        className={cn(
+          'relative h-6 w-11 shrink-0 rounded-full transition-colors',
+          checked ? 'bg-primary' : 'bg-secondary'
+        )}
+      >
+        <span
+          className={cn(
+            'absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform',
+            checked && 'translate-x-5'
+          )}
+        />
+      </button>
     </div>
   )
 }

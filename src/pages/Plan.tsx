@@ -18,9 +18,14 @@ import {
   addExerciseToSuperset,
   removeExerciseFromSuperset,
   resolveExercises,
+  saveWorkoutAsTemplate,
+  getWorkoutTemplates,
+  applyTemplateToDraft,
+  deleteWorkoutTemplate,
   SUPERSET_MAX_MEMBERS,
 } from '@/db'
-import { Button } from '@/components/ui'
+import { Button, Sheet } from '@/components/ui'
+import type { WorkoutTemplate } from '@/lib/types'
 import { ExercisePicker } from '@/components/planner/ExercisePicker'
 import { PlannedExerciseCard } from '@/components/planner/PlannedExerciseCard'
 import { ScheduleSheet } from '@/components/planner/ScheduleSheet'
@@ -45,7 +50,11 @@ export function Plan() {
   const [pickerOpen, setPickerOpen] = useState(false)
   const [scheduleOpen, setScheduleOpen] = useState(false)
   const [discardConfirm, setDiscardConfirm] = useState(false)
+  const [templatesOpen, setTemplatesOpen] = useState(false)
+  const [templateFlash, setTemplateFlash] = useState(false)
   const initRef = useRef(false)
+
+  const templates = useLiveQuery(() => getWorkoutTemplates(), [])
 
   // Defensive: ensure body scroll is unlocked whenever the planner mounts.
   // If a Sheet (picker/schedule) was open when the user navigated away, an
@@ -286,6 +295,22 @@ export function Plan() {
     navigate('/')
   }, [workoutId, navigate])
 
+  const handleSaveTemplate = useCallback(async () => {
+    if (!workoutId) return
+    const name = window.prompt('Name this template', localName.trim() || 'My template')
+    if (name == null) return // cancelled
+    await saveWorkoutAsTemplate(workoutId, name)
+    setTemplateFlash(true)
+    setTimeout(() => setTemplateFlash(false), 2200)
+  }, [workoutId, localName])
+
+  const handleUseTemplate = useCallback(async (templateId: string) => {
+    if (!workoutId) return
+    justAddedRef.current = true
+    await applyTemplateToDraft(workoutId, templateId)
+    setTemplatesOpen(false)
+  }, [workoutId])
+
   // Wait for the full chain to resolve before deciding empty vs populated.
   // Otherwise the page briefly flashes "Build your workout" on a draft that
   // already has exercises, because instances is undefined while loading.
@@ -366,6 +391,14 @@ export function Plan() {
             <Button onClick={() => setPickerOpen(true)} className="mt-6">
               Add first exercise
             </Button>
+            {templates && templates.length > 0 && (
+              <button
+                onClick={() => setTemplatesOpen(true)}
+                className="mt-3 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
+              >
+                or start from a template
+              </button>
+            )}
           </motion.div>
         ) : (
           <motion.div className="flex flex-col gap-3" {...listMotion}>
@@ -452,6 +485,23 @@ export function Plan() {
               <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
               Add another exercise
             </button>
+
+            <div className="flex items-center justify-center gap-4 pt-1">
+              {templates && templates.length > 0 && (
+                <button
+                  onClick={() => setTemplatesOpen(true)}
+                  className="text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  Add from template
+                </button>
+              )}
+              <button
+                onClick={handleSaveTemplate}
+                className="text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
+              >
+                {templateFlash ? '✓ Saved as template' : 'Save as template'}
+              </button>
+            </div>
           </motion.div>
         )}
       </main>
@@ -497,6 +547,38 @@ export function Plan() {
         onClose={() => setScheduleOpen(false)}
         onSchedule={handleSchedule}
       />
+
+      {/* Template picker */}
+      <Sheet open={templatesOpen} onClose={() => setTemplatesOpen(false)} title="Start from a template">
+        {!templates || templates.length === 0 ? (
+          <p className="py-8 text-center text-sm text-muted-foreground">
+            No templates yet. Build a workout and tap "Save as template" to reuse it later.
+          </p>
+        ) : (
+          <div className="space-y-2 pb-2">
+            {templates.map((t: WorkoutTemplate) => (
+              <div key={t.id} className="flex items-center gap-2 rounded-2xl bg-card border border-border/50 p-3">
+                <button
+                  onClick={() => handleUseTemplate(t.id)}
+                  className="flex-1 min-w-0 text-left"
+                >
+                  <p className="font-semibold text-foreground truncate">{t.name}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    {t.exercises.length} exercise{t.exercises.length !== 1 ? 's' : ''}
+                  </p>
+                </button>
+                <button
+                  onClick={() => deleteWorkoutTemplate(t.id)}
+                  className="h-9 w-9 shrink-0 flex items-center justify-center rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                  aria-label={`Delete template ${t.name}`}
+                >
+                  <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2M6 6l1 14a2 2 0 002 2h6a2 2 0 002-2l1-14" /></svg>
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </Sheet>
 
       {/* Discard confirm */}
       <AnimatePresence>

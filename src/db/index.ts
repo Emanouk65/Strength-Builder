@@ -51,6 +51,7 @@ export async function clearUserData(): Promise<void> {
       db.userAchievements,
       db.dailyCheckIns,
       db.customExercises,
+      db.workoutTemplates,
     ],
     async () => {
       await Promise.all([
@@ -68,6 +69,7 @@ export async function clearUserData(): Promise<void> {
         db.userAchievements.clear(),
         db.dailyCheckIns.clear(),
         db.customExercises.clear(),
+        db.workoutTemplates.clear(),
       ])
     }
   )
@@ -92,11 +94,50 @@ export async function exportUserData(): Promise<string> {
     userAchievements: await db.userAchievements.toArray(),
     dailyCheckIns: await db.dailyCheckIns.toArray(),
     customExercises: await db.customExercises.toArray(),
+    workoutTemplates: await db.workoutTemplates.toArray(),
+    appSettings: await db.appSettings.toArray(),
     exportedAt: new Date().toISOString(),
-    version: 1,
+    version: 2,
   }
 
   return JSON.stringify(data, null, 2)
+}
+
+/**
+ * Restore user data from a JSON backup produced by exportUserData. Replaces the
+ * contents of each table present in the file (bulkPut = insert-or-overwrite by
+ * id). Tables absent from the backup are left untouched. Throws on malformed
+ * input so the caller can surface an error.
+ */
+export async function importUserData(json: string): Promise<void> {
+  const data = JSON.parse(json) as Record<string, unknown[]>
+
+  // Only known tables are restored; anything else in the file is ignored.
+  const tableMap: Record<string, { bulkPut: (rows: unknown[]) => Promise<unknown>; clear: () => Promise<void> }> = {
+    users: db.users as never,
+    phases: db.phases as never,
+    weeks: db.weeks as never,
+    workouts: db.workouts as never,
+    workoutBlocks: db.workoutBlocks as never,
+    exerciseInstances: db.exerciseInstances as never,
+    setInstances: db.setInstances as never,
+    workoutReflections: db.workoutReflections as never,
+    readinessScores: db.readinessScores as never,
+    coachingInsights: db.coachingInsights as never,
+    liftRecords: db.liftRecords as never,
+    userAchievements: db.userAchievements as never,
+    dailyCheckIns: db.dailyCheckIns as never,
+    customExercises: db.customExercises as never,
+    workoutTemplates: db.workoutTemplates as never,
+    appSettings: db.appSettings as never,
+  }
+
+  for (const [name, table] of Object.entries(tableMap)) {
+    const rows = data[name]
+    if (!Array.isArray(rows)) continue
+    await table.clear()
+    if (rows.length > 0) await table.bulkPut(rows)
+  }
 }
 
 // Re-export everything from schema
