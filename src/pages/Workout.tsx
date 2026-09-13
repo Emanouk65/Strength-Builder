@@ -24,17 +24,17 @@ import {
 } from '@/db'
 import { readinessDisplay, type ReadinessResult } from '@/lib/readiness'
 import { triggerHaptic, playChime } from '@/lib/feedback'
-import { Button, Badge, Input, Slider, Sheet } from '@/components/ui'
+import { Button, Badge, Sheet } from '@/components/ui'
+import { CheckInForm } from '@/components/CheckInForm'
 import {
   cn,
-  generateId,
   getExerciseInputKind,
   distanceUnitFor,
   secondsToMinutes,
   minutesToSeconds,
 } from '@/lib/utils'
 import { BLOCK_CONFIG, ACHIEVEMENTS } from '@/lib/constants'
-import type { BlockType, SetInstance, WorkoutReflection, AchievementId, Exercise } from '@/lib/types'
+import type { BlockType, SetInstance, AchievementId, Exercise } from '@/lib/types'
 
 
 export function Workout() {
@@ -157,11 +157,12 @@ export function Workout() {
     )
   }
 
-  if (showReflection) {
+  if (showReflection && user) {
     return (
       <ReflectionForm
         workoutId={workoutData.id}
         workoutName={workoutData.name}
+        userId={user.id}
         onComplete={() => navigate('/', { replace: true })}
       />
     )
@@ -1219,49 +1220,26 @@ function CellInput({
 function ReflectionForm({
   workoutId,
   workoutName,
+  userId,
   onComplete,
 }: {
   workoutId: string
   workoutName: string
+  userId: string
   onComplete: () => void
 }) {
-  const [overall, setOverall] = useState(7)
-  const [energy, setEnergy] = useState(7)
-  const [journal, setJournal] = useState('')
-  const [win, setWin] = useState('')
-  const [struggle, setStruggle] = useState('')
-  const [isSubmitting, setIsSubmitting] = useState(false)
   const [showCelebration, setShowCelebration] = useState(false)
   const [celebrationData, setCelebrationData] = useState<{
     newStreak: number; totalWorkouts: number; newAchievements: AchievementId[]
   } | null>(null)
 
-  const handleSubmit = async () => {
-    setIsSubmitting(true)
-    const reflectionData: WorkoutReflection = {
-      id: generateId(),
-      workoutId,
-      completedAt: new Date(),
-      energy,
-      performance: overall,
-      sleepQuality: 7,
-      sleepHours: 7,
-      hydration: 7,
-      nutrition: 7,
-      stress: 5,
-      motivation: 7,
-      conditioningComfort: null,
-      overallSatisfaction: overall,
-      painNotes: '',
-      winOfTheDay: win,
-      struggleOfTheDay: struggle,
-      freeformNotes: journal,
-    }
-
-    await db.workoutReflections.add(reflectionData)
+  // Runs after the unified check-in form has written the dailyCheckIn +
+  // workoutReflection rows: finalize the workout and fire celebrations.
+  const handleSubmitted = async ({ energy }: { energy: number; overall: number }) => {
     await db.workouts.update(workoutId, { status: 'completed', completedAt: new Date() })
 
-    // Record real duration + lift PRs from the completed sets.
+    // Record real duration + lift PRs from the completed sets (idempotent
+    // safety net over the live per-set records).
     const prAchievements = await recordWorkoutResults(workoutId)
 
     const user = await getCurrentUser()
@@ -1304,78 +1282,40 @@ function ReflectionForm({
     <div className="min-h-screen bg-background pb-32">
       <header className="px-5 pt-12 pb-6">
         <p className="text-[10px] uppercase tracking-widest text-muted-foreground">{dateLabel}</p>
-        <h1 className="text-2xl font-bold tracking-tight mt-1">Journal entry</h1>
-        <p className="text-sm text-muted-foreground mt-1">{workoutName}</p>
+        <h1 className="text-2xl font-bold tracking-tight mt-1">Check-in</h1>
+        <p className="text-sm text-muted-foreground mt-1">{workoutName} — this also counts as today's daily check-in</p>
       </header>
 
-      <div className="px-5 space-y-6">
-        {/* Overall feel — single dominant slider */}
-        <section>
-          <div className="flex items-baseline justify-between mb-3">
-            <h2 className="text-xs uppercase tracking-widest font-semibold text-muted-foreground">How was it?</h2>
-            <span className="text-3xl font-bold tabular-nums">{overall}<span className="text-base text-muted-foreground font-normal">/10</span></span>
-          </div>
-          <Slider value={overall} onChange={setOverall} />
-        </section>
-
-        {/* Energy */}
-        <section>
-          <div className="flex items-baseline justify-between mb-3">
-            <h2 className="text-xs uppercase tracking-widest font-semibold text-muted-foreground">Energy level</h2>
-            <span className="text-3xl font-bold tabular-nums">{energy}<span className="text-base text-muted-foreground font-normal">/10</span></span>
-          </div>
-          <Slider value={energy} onChange={setEnergy} />
-        </section>
-
-        {/* Journal — the main entry */}
-        <section>
-          <h2 className="text-xs uppercase tracking-widest font-semibold text-muted-foreground mb-3">Notes</h2>
-          <textarea
-            value={journal}
-            onChange={(e) => setJournal(e.target.value)}
-            placeholder="How did the session feel? What worked, what didn't?"
-            rows={5}
-            className="w-full rounded-2xl bg-card border border-border/50 px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-foreground/30 focus:border-foreground/40 transition-colors resize-none"
-          />
-        </section>
-
-        <section className="space-y-3">
-          <Input
-            label="Win of the day"
-            placeholder="The best thing about today's session"
-            value={win}
-            onChange={e => setWin(e.target.value)}
-          />
-          <Input
-            label="Challenge"
-            placeholder="What was hardest?"
-            value={struggle}
-            onChange={e => setStruggle(e.target.value)}
-          />
-        </section>
-      </div>
-
-      {/* Sticky action bar */}
-      <div className="fixed bottom-0 inset-x-0 z-40 bg-background/90 backdrop-blur-xl border-t border-border/40 safe-area-bottom">
-        <div className="max-w-lg mx-auto px-5 py-3 flex gap-2">
-          <Button
-            variant="ghost"
-            onClick={async () => {
-              // Skip means: still mark the workout completed, just no journal entry.
-              await db.workouts.update(workoutId, { status: 'completed', completedAt: new Date() })
-              await recordWorkoutResults(workoutId)
-              const u = await getCurrentUser()
-              if (u) await updateStreakOnWorkoutComplete(u.id)
-              onComplete()
-            }}
-            className="flex-1"
-          >
-            Skip
-          </Button>
-          <Button onClick={handleSubmit} loading={isSubmitting} className="flex-[2]">
-            Save & finish
-          </Button>
-        </div>
+      <div className="px-5">
+        <CheckInForm
+          userId={userId}
+          workoutId={workoutId}
+          onSubmitted={handleSubmitted}
+          renderActions={({ submit, isSaving }) => (
+            /* Sticky action bar */
+            <div className="fixed bottom-0 inset-x-0 z-40 bg-background/90 backdrop-blur-xl border-t border-border/40 safe-area-bottom">
+              <div className="max-w-lg mx-auto px-5 py-3 flex gap-2">
+                <Button
+                  variant="ghost"
+                  onClick={async () => {
+                    // Skip means: still mark the workout completed, just no journal entry.
+                    await db.workouts.update(workoutId, { status: 'completed', completedAt: new Date() })
+                    await recordWorkoutResults(workoutId)
+                    const u = await getCurrentUser()
+                    if (u) await updateStreakOnWorkoutComplete(u.id)
+                    onComplete()
+                  }}
+                  className="flex-1"
+                >
+                  Skip
+                </Button>
+                <Button onClick={submit} loading={isSaving} className="flex-[2]">
+                  Save & finish
+                </Button>
+              </div>
+            </div>
+          )}
+        />
       </div>
     </div>
   )

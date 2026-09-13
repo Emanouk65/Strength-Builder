@@ -497,6 +497,14 @@ export async function getRecentReflections(
 }
 
 /**
+ * Get the reflection linked to a workout (used for idempotent upserts from
+ * the unified check-in form).
+ */
+export async function getReflectionForWorkout(workoutId: string): Promise<WorkoutReflection | undefined> {
+  return db.workoutReflections.where('workoutId').equals(workoutId).first()
+}
+
+/**
  * Get exercise by ID
  */
 export async function getExercise(exerciseId: string): Promise<Exercise | undefined> {
