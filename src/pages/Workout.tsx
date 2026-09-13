@@ -19,6 +19,7 @@ import {
   prefillTargetsFromHistory,
   recordWorkoutResults,
   appendSetToExercise,
+  syncLiftRecordForSet,
   type ExerciseHistorySession,
 } from '@/db'
 import { readinessDisplay, type ReadinessResult } from '@/lib/readiness'
@@ -697,17 +698,16 @@ function ExerciseBlock({
     return `${workCount}`
   })
 
-  const [prWeight, setPrWeight] = useState<number | null>(null)
-  const [lastSession, setLastSession] = useState<{ weight: number; reps: number; rpe: number | null } | null>(null)
-  useEffect(() => {
-    // PRs and last-session recall are only meaningful for strength lifts.
-    if (isCardio) return
-    if (!userId || !exerciseInstance.exerciseId) return
-    getBestLift(userId, exerciseInstance.exerciseId).then(record => {
-      if (record) setPrWeight(record.weight)
-    })
-    getLastWorkoutForExercise(userId, exerciseInstance.exerciseId).then(setLastSession)
-  }, [userId, exerciseInstance.exerciseId, isCardio])
+  // Live queries so the PR chip updates mid-session as records land.
+  const prWeight = useLiveQuery(async () => {
+    if (isCardio || !userId || !exerciseInstance.exerciseId) return null
+    const record = await getBestLift(userId, exerciseInstance.exerciseId)
+    return record?.weight ?? null
+  }, [userId, exerciseInstance.exerciseId, isCardio]) ?? null
+  const lastSession = useLiveQuery(async () => {
+    if (isCardio || !userId || !exerciseInstance.exerciseId) return null
+    return getLastWorkoutForExercise(userId, exerciseInstance.exerciseId)
+  }, [userId, exerciseInstance.exerciseId, isCardio]) ?? null
 
   const completedSets = exerciseInstance.sets.filter(s => s.completed).length
   const totalSets = exerciseInstance.sets.length
@@ -1015,6 +1015,11 @@ function SetEditableRow({
 
   const commit = async (patch: Partial<SetInstance>) => {
     await db.setInstances.update(set.id, patch)
+    // Editing an already-completed set (e.g. correcting the weight) must keep
+    // the live lift record in step. Best-effort — never blocks the edit.
+    if (set.completed && !isWarmup && !isCardio) {
+      void syncLiftRecordForSet(set.id).catch(() => {})
+    }
   }
 
   const commitWeight = () => {
@@ -1062,6 +1067,11 @@ function SetEditableRow({
       await Promise.all([commitWeight(), commitReps(), commitRpe()])
     }
     await db.setInstances.update(set.id, { completed: willComplete })
+    // Live lift record: recompute this exercise's best-of-workout immediately
+    // so Records/e1RM update without waiting for the session to finish.
+    if (!isWarmup && !isCardio) {
+      void syncLiftRecordForSet(set.id).catch(() => {})
+    }
     // Warmups don't trigger a rest — you flow straight into the next ramp set.
     if (willComplete && !isWarmup) onSetCompleted?.()
   }

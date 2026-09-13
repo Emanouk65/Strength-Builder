@@ -690,5 +690,6 @@ export const MAJOR_LIFTS = [
   { id: 'sumo-deadlift', name: 'Sumo Deadlift', icon: '🦍' },
   { id: 'incline-bench-press', name: 'Incline Bench', icon: '💪' },
   { id: 'pull-up', name: 'Pull-up', icon: '🧗' },
-  { id: 'dip', name: 'Dip', icon: '⬇️' },
+  // NOTE: must be a real EXERCISE_LIBRARY id — 'dip' doesn't exist there.
+  { id: 'tricep-dip', name: 'Dip', icon: '⬇️' },
 ]

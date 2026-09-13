@@ -577,6 +577,170 @@ export async function checkAndRecordPR(
 }
 
 // ============================================================================
+// Live Lift Records (upserted as sets are completed)
+// ============================================================================
+
+/**
+ * Ensure exactly one record per exercise carries isPersonalRecord=true — the
+ * max e1RM (ties broken by earliest date). Self-healing: safe to call after
+ * any write, including over legacy append-only rows.
+ * (Flag comparisons happen in JS — see the boolean-index note on getCurrentPR.)
+ */
+export async function recomputePRFlags(userId: string, exerciseId: string): Promise<void> {
+  const records = await db.liftRecords
+    .where('[userId+exerciseId]')
+    .equals([userId, exerciseId])
+    .toArray()
+  if (records.length === 0) return
+
+  let best = records[0]
+  for (const r of records) {
+    const better =
+      r.estimated1RM > best.estimated1RM ||
+      (r.estimated1RM === best.estimated1RM &&
+        new Date(r.date).getTime() < new Date(best.date).getTime())
+    if (better) best = r
+  }
+
+  await Promise.all(
+    records.map(r => {
+      const shouldFlag = r.id === best.id
+      if (r.isPersonalRecord === shouldFlag) return Promise.resolve(0)
+      return db.liftRecords.update(r.id, { isPersonalRecord: shouldFlag })
+    })
+  )
+}
+
+/**
+ * Recompute the lift record for one exercise within one workout from its
+ * currently-completed working sets, upserting the single row keyed by
+ * [workoutId+exerciseId] (deleted if no qualifying sets remain). Idempotent —
+ * safe to call on every set toggle/edit. Cardio exercises are skipped.
+ */
+async function upsertWorkoutLiftRecord(workoutId: string, exerciseId: string): Promise<void> {
+  const workout = await db.workouts.get(workoutId)
+  if (!workout) return
+  const userId = workout.userId
+
+  const exercise = await resolveExercise(exerciseId)
+  if (getExerciseInputKind(exercise) === 'cardio') return
+
+  // All completed working sets for this exercise across the whole workout
+  // (covers the same exercise appearing in multiple instances/blocks).
+  const blocks = await db.workoutBlocks.where('workoutId').equals(workoutId).toArray()
+  const blockIds = blocks.map(b => b.id)
+  const instances = blockIds.length
+    ? await db.exerciseInstances
+        .where('blockId').anyOf(blockIds)
+        .filter(i => i.exerciseId === exerciseId)
+        .toArray()
+    : []
+  const instanceIds = instances.map(i => i.id)
+  const sets = instanceIds.length
+    ? await db.setInstances
+        .where('exerciseInstanceId').anyOf(instanceIds)
+        .filter(s => s.completed && s.setType !== 'warmup' && s.actualWeight != null && s.actualReps != null)
+        .toArray()
+    : []
+
+  let bestSet: { weight: number; reps: number; rpe: number | null; e1rm: number } | null = null
+  for (const s of sets) {
+    const e1rm = calculateE1RM(s.actualWeight as number, s.actualReps as number)
+    if (!bestSet || e1rm > bestSet.e1rm) {
+      bestSet = { weight: s.actualWeight as number, reps: s.actualReps as number, rpe: s.actualRPE, e1rm }
+    }
+  }
+
+  const existing = await db.liftRecords
+    .where('[workoutId+exerciseId]')
+    .equals([workoutId, exerciseId])
+    .first()
+
+  if (!bestSet) {
+    if (existing) await db.liftRecords.delete(existing.id)
+  } else if (existing) {
+    await db.liftRecords.update(existing.id, {
+      weight: bestSet.weight,
+      reps: bestSet.reps,
+      rpe: bestSet.rpe,
+      estimated1RM: bestSet.e1rm,
+      date: new Date(),
+    })
+  } else {
+    await db.liftRecords.add({
+      id: crypto.randomUUID(),
+      userId,
+      exerciseId,
+      workoutId,
+      date: new Date(),
+      weight: bestSet.weight,
+      reps: bestSet.reps,
+      rpe: bestSet.rpe,
+      estimated1RM: bestSet.e1rm,
+      isPersonalRecord: false, // recomputePRFlags settles the flag below
+    })
+  }
+
+  await recomputePRFlags(userId, exerciseId)
+}
+
+/**
+ * Live-record entry point for the workout screen: given a set that was just
+ * completed / un-completed / edited, refresh its exercise's record for this
+ * workout. Best-effort — callers should not block UI on it.
+ */
+export async function syncLiftRecordForSet(setInstanceId: string): Promise<void> {
+  const set = await db.setInstances.get(setInstanceId)
+  if (!set) return
+  const inst = await db.exerciseInstances.get(set.exerciseInstanceId)
+  if (!inst) return
+  const block = await db.workoutBlocks.get(inst.blockId)
+  if (!block) return
+  await upsertWorkoutLiftRecord(block.workoutId, inst.exerciseId)
+}
+
+/** Per-exercise rollup powering the Records page. */
+export interface ExerciseRecordSummary {
+  exerciseId: string
+  /** The isPersonalRecord row (max e1RM). */
+  allTimePR: LiftRecord
+  /** Most recent record — "current e1RM". */
+  latest: LiftRecord
+  recordCount: number
+}
+
+/**
+ * One summary per exercise that has any lift record, sorted by most recent
+ * activity. Read via useLiveQuery so the Records page updates the moment a
+ * set is checked off mid-workout.
+ */
+export async function getExerciseRecordSummaries(userId: string): Promise<ExerciseRecordSummary[]> {
+  const records = await db.liftRecords.where('userId').equals(userId).toArray()
+  const byExercise = new Map<string, LiftRecord[]>()
+  for (const r of records) {
+    const arr = byExercise.get(r.exerciseId)
+    if (arr) arr.push(r)
+    else byExercise.set(r.exerciseId, [r])
+  }
+
+  const out: ExerciseRecordSummary[] = []
+  for (const [exerciseId, recs] of byExercise) {
+    let pr = recs[0]
+    let latest = recs[0]
+    for (const r of recs) {
+      if (r.estimated1RM > pr.estimated1RM) pr = r
+      if (new Date(r.date).getTime() > new Date(latest.date).getTime()) latest = r
+    }
+    // Prefer the flagged row when consistent; fall back to computed max.
+    const flagged = recs.find(r => r.isPersonalRecord)
+    out.push({ exerciseId, allTimePR: flagged ?? pr, latest, recordCount: recs.length })
+  }
+
+  out.sort((a, b) => new Date(b.latest.date).getTime() - new Date(a.latest.date).getTime())
+  return out
+}
+
+// ============================================================================
 // Streak & Achievement Functions
 // ============================================================================
 
@@ -1108,32 +1272,25 @@ export async function addManualLiftRecord(
   reps: number
 ): Promise<boolean> {
   const estimated1RM = calculateE1RM(weight, reps)
+  const id = crypto.randomUUID()
 
-  // Check if this beats the existing PR
-  const existingPR = await getCurrentPR(userId, exerciseId)
-
-  const isPR = !existingPR || estimated1RM > existingPR.estimated1RM
-
-  // Add the new record
   await db.liftRecords.add({
-    id: crypto.randomUUID(),
+    id,
     userId,
     exerciseId,
+    workoutId: null,
     date: new Date(),
     weight,
     reps,
     rpe: null,
     estimated1RM,
-    isPersonalRecord: isPR,
+    isPersonalRecord: false, // settled by recomputePRFlags below
     isManualEntry: true,
   })
 
-  // Update previous PR if this is the new one
-  if (isPR && existingPR) {
-    await db.liftRecords.update(existingPR.id, { isPersonalRecord: false })
-  }
-
-  return isPR
+  await recomputePRFlags(userId, exerciseId)
+  const saved = await db.liftRecords.get(id)
+  return saved?.isPersonalRecord ?? false
 }
 
 /**
@@ -1328,6 +1485,7 @@ export async function addExerciseToDraft(
  * remaining exercises in the block.
  */
 export async function removeExerciseFromDraft(instanceId: string): Promise<void> {
+  let affected: { workoutId: string; exerciseId: string } | null = null
   await db.transaction(
     'rw',
     [db.exerciseInstances, db.setInstances, db.workoutBlocks, db.workouts],
@@ -1355,9 +1513,16 @@ export async function removeExerciseFromDraft(instanceId: string): Promise<void>
       const block = await db.workoutBlocks.get(instance.blockId)
       if (block) {
         await db.workouts.update(block.workoutId, { lastEditedAt: new Date() })
+        affected = { workoutId: block.workoutId, exerciseId: instance.exerciseId }
       }
     }
   )
+  // If any of the removed sets had been completed, the live lift record for
+  // this workout must shrink (or disappear) with them.
+  if (affected) {
+    const { workoutId, exerciseId } = affected
+    await upsertWorkoutLiftRecord(workoutId, exerciseId).catch(() => {})
+  }
 }
 
 /**
@@ -1483,6 +1648,7 @@ export async function setExerciseSetCount(
   defaults: { targetReps?: number | null; targetWeight?: number | null } = {}
 ): Promise<void> {
   if (newCount < 1) return
+  let trimmedCompleted: { workoutId: string; exerciseId: string } | null = null
   await db.transaction('rw', [db.setInstances, db.exerciseInstances, db.workoutBlocks, db.workouts], async () => {
     const existing = await db.setInstances
       .where('exerciseInstanceId').equals(instanceId)
@@ -1518,8 +1684,15 @@ export async function setExerciseSetCount(
       await db.setInstances.bulkAdd(newSets)
     } else {
       // Trim trailing sets.
-      const toRemove = existing.slice(newCount).map(s => s.id)
-      await db.setInstances.bulkDelete(toRemove)
+      const removed = existing.slice(newCount)
+      await db.setInstances.bulkDelete(removed.map(s => s.id))
+      if (removed.some(s => s.completed)) {
+        const instance = await db.exerciseInstances.get(instanceId)
+        const block = instance ? await db.workoutBlocks.get(instance.blockId) : undefined
+        if (instance && block) {
+          trimmedCompleted = { workoutId: block.workoutId, exerciseId: instance.exerciseId }
+        }
+      }
     }
 
     const instance = await db.exerciseInstances.get(instanceId)
@@ -1528,6 +1701,11 @@ export async function setExerciseSetCount(
       if (block) await db.workouts.update(block.workoutId, { lastEditedAt: new Date() })
     }
   })
+  // Trimming completed sets must shrink the live lift record accordingly.
+  if (trimmedCompleted) {
+    const { workoutId, exerciseId } = trimmedCompleted
+    await upsertWorkoutLiftRecord(workoutId, exerciseId).catch(() => {})
+  }
 }
 
 // Maximum number of exercises allowed in a single superset group.
@@ -1731,25 +1909,18 @@ export async function recordWorkoutResults(workoutId: string): Promise<Achieveme
     await db.workouts.update(workoutId, { totalDuration: minutes })
   }
 
-  // Best completed strength set per exercise → one lift record each.
-  const bestByExercise = new Map<string, { weight: number; reps: number; rpe: number | null; e1rm: number }>()
+  // Safety net for the live-record pipeline: re-run the per-exercise upsert
+  // for every strength exercise in the session. Idempotent with the writes
+  // already made as sets were checked off (same [workoutId+exerciseId] row).
+  const exerciseIds = new Set<string>()
   for (const block of details.blocks) {
     for (const ex of block.exercises) {
       if (getExerciseInputKind(ex.exercise) === 'cardio') continue
-      for (const s of ex.sets) {
-        if (s.setType === 'warmup') continue
-        if (!s.completed || s.actualWeight == null || s.actualReps == null) continue
-        const e1rm = calculateE1RM(s.actualWeight, s.actualReps)
-        const cur = bestByExercise.get(ex.exerciseId)
-        if (!cur || e1rm > cur.e1rm) {
-          bestByExercise.set(ex.exerciseId, { weight: s.actualWeight, reps: s.actualReps, rpe: s.actualRPE, e1rm })
-        }
-      }
+      exerciseIds.add(ex.exerciseId)
     }
   }
-
-  for (const [exerciseId, best] of bestByExercise) {
-    await checkAndRecordPR(userId, exerciseId, best.weight, best.reps, best.rpe)
+  for (const exerciseId of exerciseIds) {
+    await upsertWorkoutLiftRecord(workoutId, exerciseId)
   }
 
   return checkPRAchievements(userId)
