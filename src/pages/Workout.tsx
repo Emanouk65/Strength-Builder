@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -20,8 +20,10 @@ import {
   recordWorkoutResults,
   appendSetToExercise,
   syncLiftRecordForSet,
+  patchWorkout,
   type ExerciseHistorySession,
 } from '@/db'
+import { getWarmupDrills, getCooldownStretches, type MobilityDrill } from '@/lib/mobilityContent'
 import { readinessDisplay, type ReadinessResult } from '@/lib/readiness'
 import { triggerHaptic, playChime } from '@/lib/feedback'
 import { Button, Badge, Sheet } from '@/components/ui'
@@ -42,6 +44,7 @@ export function Workout() {
   const navigate = useNavigate()
   const [currentBlockIndex, setCurrentBlockIndex] = useState(0)
   const [showReflection, setShowReflection] = useState(false)
+  const [showCooldown, setShowCooldown] = useState(false)
   const [showExitConfirm, setShowExitConfirm] = useState(false)
 
   // Which exercises are currently expanded in the execution view. A set, not a
@@ -157,6 +160,18 @@ export function Workout() {
     )
   }
 
+  if (showCooldown && !showReflection) {
+    return (
+      <CooldownScreen
+        workout={workoutData}
+        onContinue={() => {
+          setShowCooldown(false)
+          setShowReflection(true)
+        }}
+      />
+    )
+  }
+
   if (showReflection && user) {
     return (
       <ReflectionForm
@@ -209,7 +224,8 @@ export function Workout() {
     if (currentBlockIndex < totalBlocks - 1) {
       setCurrentBlockIndex(currentBlockIndex + 1)
     } else {
-      setShowReflection(true)
+      // Session done → suggested cooldown stretches, then the full check-in.
+      setShowCooldown(true)
     }
   }
 
@@ -330,6 +346,9 @@ export function Workout() {
 
       {/* Current Block */}
       <div className="p-4">
+        {/* Dynamic warmup — movement prep matched to today's muscles */}
+        {currentBlockIndex === 0 && <WarmupSection workout={workoutData} />}
+
         <div className="rounded-2xl bg-card border border-border/50 shadow-card overflow-hidden mb-4">
           {/* Block header */}
           <div className="px-4 pt-4 pb-3 border-b border-border/40 bg-secondary/20">
@@ -1210,6 +1229,193 @@ function CellInput({
         completed ? 'text-foreground' : 'text-foreground'
       )}
     />
+  )
+}
+
+// ============================================================================
+// Warmup & Cooldown (mobility drills matched to the day's muscles)
+// ============================================================================
+
+/** The slice of getWorkoutWithDetails both mobility surfaces need. */
+interface MobilityWorkout {
+  id: string
+  warmupDone?: string[]
+  cooldownDone?: string[]
+  blocks: { exercises: { exercise?: Partial<Exercise>; sets: SetInstance[] }[] }[]
+}
+
+function DrillRow({
+  drill,
+  done,
+  onToggle,
+}: {
+  drill: MobilityDrill
+  done: boolean
+  onToggle: () => void
+}) {
+  const dose = drill.reps ?? (drill.durationSeconds ? `${drill.durationSeconds}s` : '')
+  return (
+    <button
+      onClick={onToggle}
+      className={cn(
+        'w-full flex items-start gap-3 rounded-xl px-3 py-2.5 text-left transition-colors',
+        done ? 'bg-foreground/10' : 'bg-secondary/30 hover:bg-secondary/50'
+      )}
+    >
+      <span
+        className={cn(
+          'mt-0.5 h-5 w-5 shrink-0 rounded-full border-2 flex items-center justify-center transition-colors',
+          done ? 'bg-foreground border-foreground text-background' : 'border-muted-foreground/50'
+        )}
+      >
+        {done && (
+          <svg viewBox="0 0 24 24" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round"><path d="M5 13l4 4L19 7" /></svg>
+        )}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="flex items-baseline justify-between gap-2">
+          <span className={cn('text-sm font-semibold', done && 'text-muted-foreground line-through')}>{drill.name}</span>
+          {dose && <span className="text-xs text-muted-foreground tabular-nums shrink-0">{dose}</span>}
+        </span>
+        <span className="block text-xs text-muted-foreground mt-0.5">{drill.cue}</span>
+      </span>
+    </button>
+  )
+}
+
+function WarmupSection({ workout }: { workout: MobilityWorkout }) {
+  const exercises = workout.blocks.flatMap(b => b.exercises.map(e => e.exercise))
+  const exerciseKey = workout.blocks
+    .flatMap(b => b.exercises.map(e => e.exercise?.id ?? ''))
+    .join(',')
+  const drills = useMemo(
+    () => getWarmupDrills(exercises, workout.id),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [workout.id, exerciseKey]
+  )
+
+  const done = new Set(workout.warmupDone ?? [])
+  const doneCount = drills.filter(d => done.has(d.id)).length
+  const allDone = doneCount === drills.length && drills.length > 0
+  const anyWorkingSetDone = workout.blocks.some(b =>
+    b.exercises.some(e => e.sets.some(s => s.completed))
+  )
+
+  // Auto-collapsed once the warmup is finished or the session is underway;
+  // the user can always reopen manually.
+  const [manualOpen, setManualOpen] = useState<boolean | null>(null)
+  const isOpen = manualOpen ?? !(allDone || anyWorkingSetDone)
+
+  if (drills.length === 0) return null
+
+  const toggleDrill = (id: string) => {
+    const next = done.has(id)
+      ? [...done].filter(x => x !== id)
+      : [...done, id]
+    void patchWorkout(workout.id, { warmupDone: next })
+  }
+
+  return (
+    <div className="rounded-2xl bg-card border border-border/50 overflow-hidden mb-4">
+      <button
+        onClick={() => setManualOpen(!isOpen)}
+        className="w-full flex items-center justify-between px-4 py-3 hover:bg-secondary/30 transition-colors"
+      >
+        <div className="flex items-center gap-2">
+          <span className="text-base">🔥</span>
+          <span className="text-sm font-bold">Warm-up</span>
+          <span className={cn('text-xs tabular-nums', allDone ? 'text-foreground' : 'text-muted-foreground')}>
+            {doneCount}/{drills.length}
+          </span>
+        </div>
+        <svg
+          viewBox="0 0 24 24"
+          className={cn('h-4 w-4 text-muted-foreground transition-transform', isOpen && 'rotate-180')}
+          fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"
+        >
+          <path d="M6 9l6 6 6-6" />
+        </svg>
+      </button>
+
+      <AnimatePresence initial={false}>
+        {isOpen && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.22, ease: [0.4, 0, 0.2, 1] }}
+            className="overflow-hidden"
+          >
+            <div className="px-3 pb-3 space-y-1.5">
+              <p className="px-1 pb-1 text-xs text-muted-foreground">
+                Movement prep picked for today's muscles. Check them off as you go.
+              </p>
+              {drills.map(d => (
+                <DrillRow key={d.id} drill={d} done={done.has(d.id)} onToggle={() => toggleDrill(d.id)} />
+              ))}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  )
+}
+
+function CooldownScreen({
+  workout,
+  onContinue,
+}: {
+  workout: MobilityWorkout
+  onContinue: () => void
+}) {
+  const exercises = workout.blocks.flatMap(b => b.exercises.map(e => e.exercise))
+  const stretches = useMemo(
+    () => getCooldownStretches(exercises, workout.id),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [workout.id]
+  )
+  const done = new Set(workout.cooldownDone ?? [])
+  const doneCount = stretches.filter(d => done.has(d.id)).length
+
+  const toggleDrill = (id: string) => {
+    const next = done.has(id)
+      ? [...done].filter(x => x !== id)
+      : [...done, id]
+    void patchWorkout(workout.id, { cooldownDone: next })
+  }
+
+  return (
+    <div className="min-h-screen bg-background pb-32">
+      <header className="px-5 pt-12 pb-6">
+        <p className="text-[10px] uppercase tracking-widest text-muted-foreground">Session complete</p>
+        <h1 className="text-2xl font-bold tracking-tight mt-1">Cool down 🧊</h1>
+        <p className="text-sm text-muted-foreground mt-1">
+          Stretch what you trained — then log your check-in.
+        </p>
+      </header>
+
+      <div className="px-5 space-y-1.5">
+        <div className="flex items-baseline justify-between px-1 pb-1">
+          <span className="text-xs uppercase tracking-widest font-semibold text-muted-foreground">Suggested stretches</span>
+          <span className="text-xs text-muted-foreground tabular-nums">{doneCount}/{stretches.length}</span>
+        </div>
+        {stretches.map(d => (
+          <DrillRow key={d.id} drill={d} done={done.has(d.id)} onToggle={() => toggleDrill(d.id)} />
+        ))}
+      </div>
+
+      {/* Sticky action bar */}
+      <div className="fixed bottom-0 inset-x-0 z-40 bg-background/90 backdrop-blur-xl border-t border-border/40 safe-area-bottom">
+        <div className="max-w-lg mx-auto px-5 py-3 flex gap-2">
+          <Button variant="ghost" onClick={onContinue} className="flex-1">
+            Skip
+          </Button>
+          <Button onClick={onContinue} className="flex-[2]">
+            Continue to check-in
+          </Button>
+        </div>
+      </div>
+    </div>
   )
 }
 
