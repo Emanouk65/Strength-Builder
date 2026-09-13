@@ -16,6 +16,7 @@ import { Settings } from '@/pages/Settings'
 import { DailyCheckInPage } from '@/pages/DailyCheckIn'
 import { LiftRecords } from '@/pages/LiftRecords'
 import { Plan } from '@/pages/Plan'
+import { Coach } from '@/pages/Coach'
 import { Layout } from '@/components/Layout'
 
 // Program tab was removed in favor of pure user-built workouts via /plan.
@@ -50,6 +51,7 @@ function AnimatedRoutes() {
           <Route path="/plan" element={<Plan />} />
           <Route path="/plan/:workoutId" element={<Plan />} />
           <Route path="/check-in" element={<DailyCheckInPage />} />
+          <Route path="/coach" element={<Coach />} />
           <Route path="/program" element={<Navigate to="/" replace />} />
           <Route path="/history" element={<History />} />
           <Route path="/settings" element={<Settings />} />

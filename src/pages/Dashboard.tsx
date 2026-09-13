@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { db, getCurrentUser, getNextAvailableWorkout, getMissedWorkouts, skipWorkout, getRecentReflections, getUserAchievements, getTodaysCheckIn, getRecentCheckIns, getDraftWorkout, getScheduledWorkouts } from '@/db'
+import { db, getCurrentUser, getNextProgramWorkout, getMissedProgramWorkouts, getActiveProgram, skipWorkout, getRecentReflections, getUserAchievements, getTodaysCheckIn, getRecentCheckIns, getDraftWorkout, getScheduledWorkouts } from '@/db'
 import { Button, Card, CardContent, CardHeader, CardTitle, Badge } from '@/components/ui'
 import { formatDate, formatDuration, cn, getShortDayName, getLocalDateString } from '@/lib/utils'
 import { ACHIEVEMENTS } from '@/lib/constants'
@@ -14,7 +14,15 @@ export function Dashboard() {
   const nextWorkout = useLiveQuery(
     async () => {
       if (!user) return null
-      return getNextAvailableWorkout(user.id)
+      return (await getNextProgramWorkout(user.id)) ?? null
+    },
+    [user]
+  )
+
+  const activeProgram = useLiveQuery(
+    async () => {
+      if (!user) return null
+      return (await getActiveProgram(user.id)) ?? null
     },
     [user]
   )
@@ -22,7 +30,7 @@ export function Dashboard() {
   const missedWorkouts = useLiveQuery(
     async () => {
       if (!user) return []
-      return getMissedWorkouts(user.id)
+      return getMissedProgramWorkouts(user.id)
     },
     [user]
   )
@@ -122,10 +130,10 @@ export function Dashboard() {
       if (!user) return [] as Workout[]
       const start = new Date(); start.setHours(0, 0, 0, 0)
       const end = new Date(start); end.setDate(end.getDate() + 7)
-      // Only show user-scheduled drafts (weekId === null) — programmed
-      // workouts surface via the NextWorkoutCard.
+      // Only show user-scheduled workouts — program workouts (programId set)
+      // surface via the NextWorkoutCard hero instead.
       const list = await getScheduledWorkouts(user.id, start, end)
-      return list.filter(w => w.weekId === null)
+      return list.filter(w => w.weekId === null && !w.programId)
     },
     [user]
   )
@@ -203,12 +211,33 @@ export function Dashboard() {
         {/* Next Workout Hero Card */}
         <NextWorkoutCard
           nextWorkout={nextWorkout}
+          programName={activeProgram?.name ?? null}
           onStart={(id) => navigate(`/workout/${id}`)}
           onStartFree={() => navigate('/plan')}
+          onOpenCoach={() => navigate('/coach')}
         />
 
         {/* Weekly Stats Row */}
         <WeeklyStatsRow stats={weeklyStats} insight={insight} />
+
+        {/* AI Coach entry */}
+        <button
+          onClick={() => navigate('/coach')}
+          className="w-full text-left rounded-2xl p-4 border border-border/30 bg-card hover:border-primary/30 active:scale-[0.98] transition-all duration-200 flex items-center gap-4"
+        >
+          <div className="w-10 h-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
+            <span className="text-lg">✨</span>
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="font-semibold text-sm text-foreground">AI Coach</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {activeProgram ? `On program: ${activeProgram.name}` : 'Generate a training program from your goals'}
+            </p>
+          </div>
+          <svg className="w-4 h-4 text-muted-foreground shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+          </svg>
+        </button>
 
         {/* Quick Actions */}
         <div className="grid grid-cols-2 gap-3">
@@ -322,12 +351,16 @@ export function Dashboard() {
 
 function NextWorkoutCard({
   nextWorkout,
+  programName,
   onStart,
   onStartFree,
+  onOpenCoach,
 }: {
   nextWorkout: Workout | null | undefined
+  programName: string | null
   onStart: (id: string) => void
   onStartFree: () => void
+  onOpenCoach: () => void
 }) {
   if (nextWorkout?.status === 'completed') {
     return (
@@ -359,6 +392,11 @@ function NextWorkoutCard({
                 {isInProgress ? 'In Progress' : isToday ? "Today's Workout" : formatDate(nextWorkout.scheduledDate, 'long')}
               </p>
               <h2 className="text-xl font-bold text-foreground mt-1 tracking-tight">{nextWorkout.name}</h2>
+              {programName && nextWorkout.programWeek != null && (
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Week {nextWorkout.programWeek} · {programName}
+                </p>
+              )}
             </div>
             {nextWorkout.totalDuration ? (
               <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-secondary/60 border border-border/40">
@@ -388,8 +426,15 @@ function NextWorkoutCard({
       <div className="relative z-10 p-5">
         <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mb-1">Free Day</p>
         <h2 className="text-xl font-bold text-foreground mb-1 tracking-tight">No Scheduled Workout</h2>
-        <p className="text-sm text-muted-foreground mb-4">Plan a workout or take a recovery day.</p>
-        <Button className="w-full" onClick={onStartFree}>Plan Workout</Button>
+        <p className="text-sm text-muted-foreground mb-4">
+          {programName ? 'Nothing on the program today — plan something or recover.' : 'Plan a workout, or let the Coach build you a program.'}
+        </p>
+        <div className="flex gap-2">
+          <Button className="flex-1" onClick={onStartFree}>Plan Workout</Button>
+          {!programName && (
+            <Button variant="outline" className="flex-1" onClick={onOpenCoach}>✨ AI Coach</Button>
+          )}
+        </div>
       </div>
     </div>
   )

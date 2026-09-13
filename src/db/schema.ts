@@ -1310,6 +1310,53 @@ export async function getAllPRs(userId: string): Promise<LiftRecord[]> {
 }
 
 // ============================================================================
+// Program Functions (AI-generated training programs)
+// ============================================================================
+
+/** The user's single active training program, if any. */
+export async function getActiveProgram(userId: string): Promise<Program | undefined> {
+  const programs = await db.programs.where('userId').equals(userId).toArray()
+  return programs.find(p => p.status === 'active')
+}
+
+/**
+ * Next program workout to surface on the Dashboard hero: an in-progress
+ * session wins, then the earliest upcoming planned workout, then (if the
+ * user is behind) the earliest missed one.
+ */
+export async function getNextProgramWorkout(userId: string): Promise<Workout | undefined> {
+  const program = await getActiveProgram(userId)
+  if (!program) return undefined
+
+  const workouts = await db.workouts
+    .where('programId').equals(program.id)
+    .filter(w => w.status === 'planned' || w.status === 'in_progress')
+    .toArray()
+  workouts.sort((a, b) => new Date(a.scheduledDate).getTime() - new Date(b.scheduledDate).getTime())
+
+  const inProgress = workouts.find(w => w.status === 'in_progress')
+  if (inProgress) return inProgress
+
+  const startOfToday = new Date()
+  startOfToday.setHours(0, 0, 0, 0)
+  return workouts.find(w => new Date(w.scheduledDate) >= startOfToday) ?? workouts[0]
+}
+
+/** Program workouts whose scheduled date has passed without being started. */
+export async function getMissedProgramWorkouts(userId: string): Promise<Workout[]> {
+  const program = await getActiveProgram(userId)
+  if (!program) return []
+
+  const startOfToday = new Date()
+  startOfToday.setHours(0, 0, 0, 0)
+  const missed = await db.workouts
+    .where('programId').equals(program.id)
+    .filter(w => w.status === 'planned' && new Date(w.scheduledDate) < startOfToday)
+    .toArray()
+  return missed.sort((a, b) => new Date(a.scheduledDate).getTime() - new Date(b.scheduledDate).getTime())
+}
+
+// ============================================================================
 // Custom Exercise Functions
 // ============================================================================
 
