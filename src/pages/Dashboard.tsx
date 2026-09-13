@@ -3,7 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { db, getCurrentUser, getNextProgramWorkout, getMissedProgramWorkouts, getActiveProgram, skipWorkout, getRecentReflections, getUserAchievements, getTodaysCheckIn, getRecentCheckIns, getDraftWorkout, getScheduledWorkouts } from '@/db'
-import { Button, Card, CardContent, CardHeader, CardTitle, Badge } from '@/components/ui'
+import { Button, Card, CardContent, CardHeader, CardTitle, Badge, Skeleton } from '@/components/ui'
 import { formatDate, formatDuration, cn, getShortDayName, getLocalDateString } from '@/lib/utils'
 import { ACHIEVEMENTS } from '@/lib/constants'
 import type { WorkoutReflection, Workout, DailyCheckIn } from '@/lib/types'
@@ -158,6 +158,27 @@ export function Dashboard() {
     [user, currentStreak, weeklyStats, recentReflections]
   )
 
+  // First paint: user query hasn't resolved yet — show a skeleton instead of
+  // a blank flash. (null means no user at all; App routes that to onboarding.)
+  if (user === undefined) {
+    return (
+      <div className="flex flex-col">
+        <div className="px-4 pt-12 pb-6 border-b border-border/30">
+          <Skeleton className="h-4 w-28" />
+          <Skeleton className="h-8 w-40 mt-2" />
+        </div>
+        <div className="flex flex-col gap-5 px-4 pt-5 pb-8">
+          <Skeleton className="h-32 w-full rounded-2xl" />
+          <Skeleton className="h-24 w-full rounded-2xl" />
+          <Skeleton className="h-16 w-full rounded-2xl" />
+          <div className="grid grid-cols-2 gap-3">
+            <Skeleton className="h-24 rounded-2xl" />
+            <Skeleton className="h-24 rounded-2xl" />
+          </div>
+        </div>
+      </div>
+    )
+  }
   if (!user) return null
 
   const greeting = getGreeting()

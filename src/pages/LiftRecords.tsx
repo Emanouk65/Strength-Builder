@@ -9,7 +9,7 @@ import {
   resolveExercises,
   type ExerciseRecordSummary,
 } from '@/db'
-import { Button } from '@/components/ui'
+import { Button, Skeleton } from '@/components/ui'
 import { formatDate, calculateE1RM, cn } from '@/lib/utils'
 import { MAJOR_LIFTS } from '@/lib/constants'
 
@@ -224,7 +224,9 @@ export function LiftRecords() {
       </header>
 
       <div className="px-5 space-y-2.5">
-        {(rows?.pinned ?? []).map(renderRow)}
+        {rows === undefined
+          ? Array.from({ length: 6 }, (_, i) => <Skeleton key={i} className="h-16 rounded-2xl" />)
+          : rows.pinned.map(renderRow)}
       </div>
 
       {rows && rows.others.length > 0 && (

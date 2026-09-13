@@ -548,7 +548,7 @@ function RestTimer({
             <span className="text-[10px] uppercase tracking-widest font-semibold text-muted-foreground">
               {done ? 'Rest done' : 'Rest'}
             </span>
-            <span className="text-lg font-bold tabular-nums leading-none">{label}</span>
+            <span className={cn('text-lg font-bold tabular-nums leading-none', !done && remaining <= 3 && 'animate-pulse')}>{label}</span>
           </div>
           <div className="mt-1.5 h-1.5 rounded-full bg-secondary overflow-hidden">
             <div
@@ -1169,8 +1169,11 @@ function SetEditableRow({
         completed={set.completed}
       />
 
-      <button
+      <motion.button
         onClick={toggleComplete}
+        whileTap={{ scale: 0.85 }}
+        animate={set.completed ? { scale: [1, 1.18, 1] } : { scale: 1 }}
+        transition={{ duration: 0.28, ease: [0.34, 1.56, 0.64, 1] }}
         className={cn(
           'h-10 w-10 flex items-center justify-center rounded-lg transition-colors touch-target shrink-0',
           set.completed
@@ -1182,7 +1185,7 @@ function SetEditableRow({
         <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round">
           <polyline points="20 6 9 17 4 12" />
         </svg>
-      </button>
+      </motion.button>
     </div>
   )
 }
@@ -1543,15 +1546,38 @@ function CelebrationScreen({
   return (
     <div className="min-h-screen bg-background flex flex-col safe-area-inset">
       <main className="flex-1 flex flex-col items-center justify-center px-6 max-w-md mx-auto w-full text-center">
-        {/* Hero — checkmark glyph, scales in */}
-        <motion.div
-          initial={{ scale: 0.6, opacity: 0 }}
-          animate={{ scale: 1, opacity: 1 }}
-          transition={{ duration: 0.45, ease: [0.34, 1.56, 0.64, 1] }}
-          className="h-20 w-20 rounded-full bg-foreground text-background flex items-center justify-center mb-6"
-        >
-          <svg viewBox="0 0 24 24" className="h-10 w-10" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"><path d="M5 13l4 4L19 7" /></svg>
-        </motion.div>
+        {/* Hero — checkmark glyph, scales in, with a small particle burst */}
+        <div className="relative mb-6">
+          {Array.from({ length: 12 }, (_, i) => {
+            const angle = (i / 12) * Math.PI * 2
+            return (
+              <motion.span
+                key={i}
+                initial={{ x: 0, y: 0, scale: 1, opacity: 0.9 }}
+                animate={{
+                  x: Math.cos(angle) * 64,
+                  y: Math.sin(angle) * 64,
+                  scale: 0,
+                  opacity: 0,
+                }}
+                transition={{ duration: 0.7, delay: 0.25, ease: 'easeOut' }}
+                className={cn(
+                  'absolute left-1/2 top-1/2 h-2 w-2 -ml-1 -mt-1 rounded-full pointer-events-none',
+                  i % 3 === 0 ? 'bg-foreground' : i % 3 === 1 ? 'bg-foreground/60' : 'bg-foreground/30'
+                )}
+                aria-hidden
+              />
+            )
+          })}
+          <motion.div
+            initial={{ scale: 0.6, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            transition={{ duration: 0.45, ease: [0.34, 1.56, 0.64, 1] }}
+            className="h-20 w-20 rounded-full bg-foreground text-background flex items-center justify-center"
+          >
+            <svg viewBox="0 0 24 24" className="h-10 w-10" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"><path d="M5 13l4 4L19 7" /></svg>
+          </motion.div>
+        </div>
 
         <motion.h1
           initial={{ opacity: 0, y: 8 }}

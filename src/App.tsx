@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useState } from 'react'
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
-import { AnimatePresence, motion } from 'framer-motion'
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { initializeDatabase, getCurrentUser } from '@/db'
 import { useRegisterSW } from 'virtual:pwa-register/react'
@@ -23,6 +23,8 @@ import { Layout } from '@/components/Layout'
 
 function AnimatedRoutes() {
   const location = useLocation()
+  // Honor the OS "reduce motion" setting: keep the route swap, skip the slide.
+  const reduceMotion = useReducedMotion()
 
   // Reset scroll to top on every route change. AnimatePresence with mode="wait"
   // unmounts the previous page and mounts the new one, but window scroll
@@ -38,10 +40,10 @@ function AnimatedRoutes() {
     <AnimatePresence mode="wait">
       <motion.div
         key={location.pathname}
-        initial={pageMotion.initial}
+        initial={reduceMotion ? false : pageMotion.initial}
         animate={pageMotion.animate}
-        exit={pageMotion.exit}
-        transition={pageMotion.transition}
+        exit={reduceMotion ? undefined : pageMotion.exit}
+        transition={reduceMotion ? { duration: 0 } : pageMotion.transition}
         onAnimationStart={() => window.scrollTo({ top: 0, left: 0 })}
         className="min-h-screen bg-background"
       >
