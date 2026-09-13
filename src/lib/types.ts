@@ -247,6 +247,13 @@ export interface Workout {
   skipReason: string | null
   // Cardio-specific fields (for cardio workouts)
   cardioData?: CardioWorkoutData
+  /** Program linkage (Coach-generated workouts). null/undefined for ad-hoc sessions. */
+  programId?: string | null
+  programWeek?: number | null // 1-based week within the program
+  programDay?: number | null  // 1-based day within the week
+  /** Mobility drill ids checked off during this session. */
+  warmupDone?: string[]
+  cooldownDone?: string[]
 }
 
 // Cardio workout data for runs, walks, cycling, etc.
@@ -581,6 +588,11 @@ export interface LiftRecord {
   estimated1RM: number
   isPersonalRecord: boolean
   isManualEntry?: boolean // true if user entered this manually vs logged during workout
+  /**
+   * Workout this record came from. Live-logged records are upserted per
+   * [workoutId+exerciseId] as sets are completed; manual entries keep null.
+   */
+  workoutId?: string | null
 }
 
 // ----------------------------------------------------------------------------
@@ -622,6 +634,62 @@ export interface WorkoutTemplate {
   name: string
   createdAt: Date
   exercises: TemplateExercise[]
+}
+
+// ----------------------------------------------------------------------------
+// Training Programs (Coach-generated multi-week plans)
+// ----------------------------------------------------------------------------
+
+/** One exercise slot in a generated program day. */
+export interface GeneratedProgramExercise {
+  exerciseId: string
+  sets: number
+  reps: number
+  /** %1RM target (30-95). Used with the user's e1RM to compute target weight. */
+  percent1RM: number | null
+  targetRPE: number | null
+  /** Exercises in the same day sharing a non-null group form a superset. */
+  supersetGroup: number | null
+  note: string
+}
+
+/** One training day template (repeated each week with progression applied). */
+export interface GeneratedProgramDay {
+  name: string // "Upper A", "Lower Power"
+  exercises: GeneratedProgramExercise[]
+}
+
+/** Per-week progression applied when expanding the day templates. */
+export interface GeneratedProgramWeek {
+  week: number // 1-based
+  intensityMultiplier: number // scales %1RM-derived weights
+  repDelta: number
+  isDeload: boolean
+}
+
+/** The validated plan returned by Claude's forced create_program tool call. */
+export interface GeneratedProgram {
+  name: string
+  summary: string
+  weeksCount: number
+  days: GeneratedProgramDay[]
+  weeklyProgression: GeneratedProgramWeek[]
+}
+
+export interface Program {
+  id: string
+  userId: string
+  name: string
+  summary: string // Claude's one-paragraph rationale
+  goalText: string // the user's free-text ask
+  weeksCount: number
+  daysPerWeek: number
+  startDate: Date
+  status: 'active' | 'completed' | 'archived'
+  createdAt: Date
+  model: string // Claude model id used to generate
+  plan: GeneratedProgram // validated raw plan, kept for reference
+  warnings: string[] // exercise-mapping fallbacks applied during resolution
 }
 
 // ----------------------------------------------------------------------------

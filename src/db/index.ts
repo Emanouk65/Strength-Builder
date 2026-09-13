@@ -52,6 +52,7 @@ export async function clearUserData(): Promise<void> {
       db.dailyCheckIns,
       db.customExercises,
       db.workoutTemplates,
+      db.programs,
     ],
     async () => {
       await Promise.all([
@@ -70,6 +71,7 @@ export async function clearUserData(): Promise<void> {
         db.dailyCheckIns.clear(),
         db.customExercises.clear(),
         db.workoutTemplates.clear(),
+        db.programs.clear(),
       ])
     }
   )
@@ -96,8 +98,9 @@ export async function exportUserData(): Promise<string> {
     customExercises: await db.customExercises.toArray(),
     workoutTemplates: await db.workoutTemplates.toArray(),
     appSettings: await db.appSettings.toArray(),
+    programs: await db.programs.toArray(),
     exportedAt: new Date().toISOString(),
-    version: 2,
+    version: 3,
   }
 
   return JSON.stringify(data, null, 2)
@@ -130,6 +133,7 @@ export async function importUserData(json: string): Promise<void> {
     customExercises: db.customExercises as never,
     workoutTemplates: db.workoutTemplates as never,
     appSettings: db.appSettings as never,
+    programs: db.programs as never,
   }
 
   for (const [name, table] of Object.entries(tableMap)) {

@@ -19,6 +19,7 @@ import type {
   StoredAppSettings,
   WorkoutTemplate,
   TemplateExercise,
+  Program,
 } from '@/lib/types'
 import { getLocalDateString, calculateE1RM, getExerciseInputKind, generateWarmupSets } from '@/lib/utils'
 import { computeReadinessScore, recommendedSetWeight, type ReadinessResult } from '@/lib/readiness'
@@ -87,6 +88,7 @@ export class ForgeDB extends Dexie {
   customExercises!: EntityTable<Exercise, 'id'>
   appSettings!: EntityTable<StoredAppSettings, 'id'>
   workoutTemplates!: EntityTable<WorkoutTemplate, 'id'>
+  programs!: EntityTable<Program, 'id'>
 
   constructor() {
     super('ForgeDB')
@@ -249,6 +251,24 @@ export class ForgeDB extends Dexie {
     this.version(8).stores({
       appSettings: 'id',
       workoutTemplates: 'id, name, createdAt',
+    })
+
+    // v9 — Coach programs + live lift records.
+    // - programs: new table for AI-generated multi-week training programs.
+    // - workouts.programId: links generated workouts to their program.
+    // - liftRecords: [workoutId+exerciseId] compound key powers the upsert-on-
+    //   set-completion write model; [userId+exerciseId] speeds PR lookups.
+    this.version(9).stores({
+      programs: 'id, userId, status, createdAt',
+      workouts: 'id, userId, weekId, workoutType, scheduledDate, status, dayOfWeek, completedAt, lastEditedAt, programId',
+      liftRecords: 'id, userId, exerciseId, date, isPersonalRecord, workoutId, [workoutId+exerciseId], [userId+exerciseId]',
+    }).upgrade(async tx => {
+      await tx.table('workouts').toCollection().modify((w: { programId?: string | null }) => {
+        if (w.programId === undefined) w.programId = null
+      })
+      await tx.table('liftRecords').toCollection().modify((r: { workoutId?: string | null }) => {
+        if (r.workoutId === undefined) r.workoutId = null
+      })
     })
   }
 }
