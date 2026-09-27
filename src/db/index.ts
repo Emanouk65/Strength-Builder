@@ -97,7 +97,10 @@ export async function exportUserData(): Promise<string> {
     dailyCheckIns: await db.dailyCheckIns.toArray(),
     customExercises: await db.customExercises.toArray(),
     workoutTemplates: await db.workoutTemplates.toArray(),
-    appSettings: await db.appSettings.toArray(),
+    // The Cato sync token is a credential: never write it into a backup file.
+    appSettings: (await db.appSettings.toArray()).map((s) =>
+      s.catoSync ? { ...s, catoSync: { ...s.catoSync, token: '' } } : s
+    ),
     programs: await db.programs.toArray(),
     exportedAt: new Date().toISOString(),
     version: 3,
@@ -136,11 +139,19 @@ export async function importUserData(json: string): Promise<void> {
     programs: db.programs as never,
   }
 
+  // Backups carry no sync token, so keep this device's Cato sync config across a restore.
+  const keepCatoSync = (await db.appSettings.toArray()).find((s) => s.catoSync)?.catoSync
+
   for (const [name, table] of Object.entries(tableMap)) {
     const rows = data[name]
     if (!Array.isArray(rows)) continue
     await table.clear()
     if (rows.length > 0) await table.bulkPut(rows)
+  }
+
+  if (keepCatoSync) {
+    const rows = await db.appSettings.toArray()
+    for (const row of rows) await db.appSettings.put({ ...row, catoSync: keepCatoSync })
   }
 }
 

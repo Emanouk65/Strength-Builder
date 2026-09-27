@@ -606,6 +606,22 @@ export interface AppSettings {
   restTimerEnabled: boolean
   defaultRestTime: number // Seconds
   showRPEGuide: boolean
+  /** Sync of daily training summaries to the LifeOS repo for Cato. Optional; absent = off. */
+  catoSync?: CatoSyncConfig
+}
+
+export interface CatoSyncConfig {
+  enabled: boolean
+  /** Fine-grained GitHub token, Contents read/write on the LifeOS repo only. Never exported. */
+  token: string
+  repo: string // "owner/name"
+  branch: string
+  path: string // folder inside the repo
+  /** Local dates (YYYY-MM-DD) that still need to be pushed. */
+  pending: string[]
+  lastSyncedAt: string | null
+  lastSyncedDate: string | null
+  lastError: string | null
 }
 
 /** Persisted singleton settings row (keyed by a fixed id). */
