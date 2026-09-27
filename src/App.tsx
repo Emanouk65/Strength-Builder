@@ -6,6 +6,7 @@ import { initializeDatabase, getCurrentUser } from '@/db'
 import { useRegisterSW } from 'virtual:pwa-register/react'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { pageMotion } from '@/lib/utils'
+import { flushCatoSyncOnOpen } from '@/lib/catoSync'
 
 // Pages
 import { Dashboard } from '@/pages/Dashboard'
@@ -105,6 +106,7 @@ function App() {
       .then(() => {
         clearTimeout(timeoutId)
         setIsInitialized(true)
+        flushCatoSyncOnOpen() // retry queued Cato syncs; no-op unless the sync is on
       })
       .catch((error) => {
         console.error('Database initialization error:', error)
@@ -113,7 +115,14 @@ function App() {
         setIsInitialized(true)
       })
 
-    return () => clearTimeout(timeoutId)
+    // Coming back online (e.g. leaving a gym with no signal) flushes the queue.
+    const onOnline = () => flushCatoSyncOnOpen()
+    window.addEventListener('online', onOnline)
+
+    return () => {
+      clearTimeout(timeoutId)
+      window.removeEventListener('online', onOnline)
+    }
   }, [])
 
   if (!isInitialized) {

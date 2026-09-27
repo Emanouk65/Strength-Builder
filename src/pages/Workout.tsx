@@ -26,6 +26,7 @@ import {
 import { getWarmupDrills, getCooldownStretches, type MobilityDrill } from '@/lib/mobilityContent'
 import { readinessDisplay, type ReadinessResult } from '@/lib/readiness'
 import { triggerHaptic, playChime } from '@/lib/feedback'
+import { requestCatoSync } from '@/lib/catoSync'
 import { Button, Badge, Sheet } from '@/components/ui'
 import { CheckInForm } from '@/components/CheckInForm'
 import {
@@ -1450,6 +1451,7 @@ function ReflectionForm({
     // Record real duration + lift PRs from the completed sets (idempotent
     // safety net over the live per-set records).
     const prAchievements = await recordWorkoutResults(workoutId)
+    requestCatoSync() // push today's session to Cato (no-op unless the sync is on)
 
     const user = await getCurrentUser()
     if (user) {
@@ -1510,6 +1512,7 @@ function ReflectionForm({
                     // Skip means: still mark the workout completed, just no journal entry.
                     await db.workouts.update(workoutId, { status: 'completed', completedAt: new Date() })
                     await recordWorkoutResults(workoutId)
+                    requestCatoSync()
                     const u = await getCurrentUser()
                     if (u) await updateStreakOnWorkoutComplete(u.id)
                     onComplete()

@@ -4,7 +4,8 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { db, getCurrentUser, clearUserData, exportUserData, importUserData, getAppSettings, updateAppSettings } from '@/db'
 import { Button, Card, CardContent, CardHeader, CardTitle, Input, Badge } from '@/components/ui'
 import { cn } from '@/lib/utils'
-import type { UserPreferences, AppSettings } from '@/lib/types'
+import type { UserPreferences, AppSettings, CatoSyncConfig } from '@/lib/types'
+import { CATO_SYNC_DEFAULTS, saveCatoSyncConfig, testCatoConnection, backfillCatoSync } from '@/lib/catoSync'
 
 export function Settings() {
   const navigate = useNavigate()
@@ -270,6 +271,9 @@ export function Settings() {
           </CardContent>
         </Card>
 
+        {/* Cato sync */}
+        <CatoSyncCard config={settings?.catoSync} />
+
         {/* Injury Profile */}
         <Card>
           <CardHeader>
@@ -397,6 +401,112 @@ export function Settings() {
         </Card>
       </div>
     </div>
+  )
+}
+
+function CatoSyncCard({ config }: { config: CatoSyncConfig | undefined }) {
+  const cfg = { ...CATO_SYNC_DEFAULTS, ...(config ?? {}) }
+  const [token, setToken] = useState('')
+  const [repo, setRepo] = useState(cfg.repo)
+  const [busy, setBusy] = useState<null | 'connect' | 'backfill'>(null)
+  const [message, setMessage] = useState<string | null>(null)
+  const connected = cfg.enabled && Boolean(cfg.token)
+
+  const connect = async () => {
+    setBusy('connect')
+    setMessage(null)
+    const next = { ...cfg, repo: repo.trim() || cfg.repo, token: token.trim() || cfg.token }
+    const err = await testCatoConnection(next)
+    if (err) {
+      setMessage(err)
+    } else {
+      await saveCatoSyncConfig({ ...next, enabled: true, lastError: null })
+      setToken('')
+      setMessage('Connected. Syncing the last 30 days now.')
+      setBusy('backfill')
+      await backfillCatoSync(30)
+      setMessage('Connected. The last 30 days are synced.')
+    }
+    setBusy(null)
+  }
+
+  const backfill = async () => {
+    setBusy('backfill')
+    setMessage(null)
+    await backfillCatoSync(30)
+    setBusy(null)
+  }
+
+  const lastSynced = cfg.lastSyncedAt ? new Date(cfg.lastSyncedAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : null
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Cato sync</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <p className="text-xs text-muted-foreground">
+          Sends each day's workouts, sets, estimated 1RMs and check-in to your LifeOS repo, so Cato tracks training without asking. It runs by itself when you finish a workout or save a check-in.
+        </p>
+        <div className="flex items-center justify-between">
+          <span className="text-sm text-muted-foreground">Status</span>
+          {connected ? (
+            <Badge variant={cfg.lastError ? 'warning' : 'success'}>{cfg.lastError ? 'Retrying' : 'On'}</Badge>
+          ) : (
+            <Badge variant="outline">Off</Badge>
+          )}
+        </div>
+        {connected && (
+          <div className="space-y-1 text-xs text-muted-foreground">
+            <p>{lastSynced ? `Last synced ${lastSynced}${cfg.lastSyncedDate ? `, latest day written ${cfg.lastSyncedDate}` : ''}.` : 'Not synced yet.'}</p>
+            {cfg.pending.length > 0 && <p>{cfg.pending.length} day{cfg.pending.length === 1 ? '' : 's'} waiting to send.</p>}
+            {cfg.lastError && <p className="text-destructive">{cfg.lastError}</p>}
+          </div>
+        )}
+        <div className="space-y-2">
+          <Input
+            id="cato-repo"
+            placeholder="owner/repo"
+            value={repo}
+            onChange={(e) => setRepo(e.target.value)}
+            hint="The LifeOS repo on GitHub"
+          />
+          <Input
+            id="cato-token"
+            type="password"
+            placeholder="github_pat_..."
+            value={token}
+            onChange={(e) => setToken(e.target.value)}
+            hint={connected ? 'Paste a new token to replace the saved one' : 'Fine-grained token: this repo only, Contents read and write'}
+          />
+          <Button
+            variant="secondary"
+            className="w-full"
+            onClick={connect}
+            loading={busy === 'connect'}
+            disabled={busy !== null || (!token && !connected)}
+          >
+            {connected ? 'Save and reconnect' : 'Connect'}
+          </Button>
+          {connected && (
+            <div className="flex gap-2">
+              <Button variant="outline" className="flex-1" onClick={backfill} loading={busy === 'backfill'} disabled={busy !== null}>
+                Sync last 30 days
+              </Button>
+              <Button
+                variant="ghost"
+                className="flex-1"
+                disabled={busy !== null}
+                onClick={async () => { await saveCatoSyncConfig({ enabled: false }); setMessage('Sync turned off. Your token is still saved on this device.') }}
+              >
+                Turn off
+              </Button>
+            </div>
+          )}
+          {message && <p className="text-xs text-muted-foreground text-center">{message}</p>}
+        </div>
+      </CardContent>
+    </Card>
   )
 }
 

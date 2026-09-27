@@ -8,6 +8,7 @@ import {
 } from '@/db'
 import { Button, Card, CardContent, CardHeader, CardTitle, Input, Slider } from '@/components/ui'
 import { cn, generateId, getLocalDateString } from '@/lib/utils'
+import { requestCatoSync } from '@/lib/catoSync'
 import type { DailyCheckIn, WorkoutReflection } from '@/lib/types'
 
 /**
@@ -109,6 +110,7 @@ export function CheckInForm({
         workoutId: workoutId ?? existingCheckIn?.workoutId ?? null,
       }
       await saveDailyCheckIn(checkInData)
+      requestCatoSync(today) // coalesces with the workout's own sync when post-workout
 
       if (isPostWorkout && workoutId) {
         const existingReflection = await getReflectionForWorkout(workoutId)
