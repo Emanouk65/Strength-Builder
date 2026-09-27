@@ -167,7 +167,9 @@ const toBase64 = (s: string) => {
 const fromBase64 = (b: string) => new TextDecoder().decode(Uint8Array.from(atob(b.replace(/\n/g, '')), (c) => c.charCodeAt(0)))
 
 async function gh(cfg: CatoSyncConfig, path: string, init?: RequestInit) {
-  return fetch(`https://api.github.com/repos/${cfg.repo}/${path}`, {
+  // No trailing slash for the repo itself: GitHub answers 404 to `/repos/owner/name/`.
+  const repo = cfg.repo.trim().replace(/^https?:\/\/github\.com\//i, '').replace(/\.git$/i, '').replace(/\/+$/, '')
+  return fetch(`https://api.github.com/repos/${repo}${path ? '/' + path : ''}`, {
     ...init,
     headers: {
       Accept: 'application/vnd.github+json',
