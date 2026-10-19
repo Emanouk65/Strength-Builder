@@ -24,6 +24,7 @@ export const CATO_SYNC_DEFAULTS: CatoSyncConfig = {
   lastSyncedAt: null,
   lastSyncedDate: null,
   lastError: null,
+  installedProgramId: null,
 }
 
 export async function getCatoSyncConfig(): Promise<CatoSyncConfig> {
@@ -186,6 +187,15 @@ function explain(status: number, fallback: string): string {
   if (status === 404) return 'Repo not found. Check the owner/name, and that the token includes this repo.'
   if (status === 409 || status === 422) return 'GitHub had a conflicting update. It will retry on the next sync.'
   return fallback
+}
+
+/** Read one text file from the repo at the sync branch. Null when it does not exist. */
+export async function readRepoFile(cfg: CatoSyncConfig, filePath: string): Promise<string | null> {
+  const r = await gh(cfg, `contents/${filePath}?ref=${encodeURIComponent(cfg.branch)}`)
+  if (r.status === 404) return null
+  if (!r.ok) throw new Error(explain(r.status, `GitHub returned ${r.status}.`))
+  const j = await r.json()
+  return typeof j.content === 'string' ? fromBase64(j.content) : null
 }
 
 /** Check the token and repo without writing anything. */

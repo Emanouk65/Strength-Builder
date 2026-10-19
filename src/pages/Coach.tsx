@@ -11,6 +11,7 @@ import {
   type GenerationResult,
 } from '@/lib/programGeneration'
 import { Button, Card, CardContent } from '@/components/ui'
+import { ProgramInboxCard } from '@/components/ProgramInboxCard'
 import { cn, formatDate, getLocalDateString } from '@/lib/utils'
 
 type CoachStage = 'intake' | 'generating' | 'preview'
@@ -101,6 +102,10 @@ export function Coach() {
           <h1 className="text-2xl font-bold tracking-tight mt-1">Build a program</h1>
         </div>
       </header>
+
+      <div className="px-5 mb-5">
+        <ProgramInboxCard />
+      </div>
 
       {/* No API key gate */}
       {!hasApiKey && (
