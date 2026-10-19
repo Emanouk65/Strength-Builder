@@ -622,6 +622,8 @@ export interface CatoSyncConfig {
   lastSyncedAt: string | null
   lastSyncedDate: string | null
   lastError: string | null
+  /** Id of the last program installed from the repo inbox (data/body/program/active.json). */
+  installedProgramId?: string | null
 }
 
 /** Persisted singleton settings row (keyed by a fixed id). */

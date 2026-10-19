@@ -134,7 +134,7 @@ function activeInjuryLocations(user: User): InjuryLocation[] {
 }
 
 /** Library + custom exercises the user can actually do (equipment + injuries). */
-async function allowedExercises(user: User): Promise<Exercise[]> {
+export async function allowedExercises(user: User): Promise<Exercise[]> {
   const custom = await getCustomExercises()
   const all = [...EXERCISE_LIBRARY, ...custom]
   const equipmentSet = EQUIPMENT_BY_ACCESS[user.preferences.equipmentAccess] ?? null
@@ -224,7 +224,7 @@ async function buildPromptContext(user: User, goalText: string, weeksCount: numb
 // Validation & exercise resolution
 // ----------------------------------------------------------------------------
 
-function validateGeneratedProgram(input: unknown, weeksCount: number): { value: GeneratedProgram | null; errors: string[] } {
+export function validateGeneratedProgram(input: unknown, weeksCount: number): { value: GeneratedProgram | null; errors: string[] } {
   const errors: string[] = []
   const o = input as Partial<GeneratedProgram> | null
   if (!o || typeof o !== 'object') return { value: null, errors: ['output is not an object'] }
