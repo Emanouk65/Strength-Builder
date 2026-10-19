@@ -6,7 +6,7 @@ import {
   getRecentCheckIns,
   EXERCISE_LIBRARY,
 } from '@/db'
-import { roundToIncrement, getLocalDateString } from '@/lib/utils'
+import { roundToIncrement, getLocalDateString, generateWarmupSets } from '@/lib/utils'
 import type {
   User,
   Exercise,
@@ -234,13 +234,13 @@ export function validateGeneratedProgram(input: unknown, weeksCount: number): { 
   if (!Array.isArray(o.days) || o.days.length < 2 || o.days.length > 6) errors.push('days must be an array of 2-6 day templates')
   if (!Array.isArray(o.weeklyProgression)) errors.push('weeklyProgression missing')
 
-  const days = (o.days ?? []).map((d, di) => {
+  const parseDay = (d: GeneratedProgram['days'][number] | null | undefined, di: number) => {
     if (typeof d?.name !== 'string' || !Array.isArray(d?.exercises)) {
       errors.push(`day ${di + 1} malformed`)
       return { name: `Day ${di + 1}`, exercises: [] }
     }
     const exercises: GeneratedProgramExercise[] = d.exercises
-      .map((e, ei) => {
+      .map((e, ei): GeneratedProgramExercise | null => {
         if (typeof e?.exerciseId !== 'string' || typeof e?.sets !== 'number' || typeof e?.reps !== 'number') {
           errors.push(`day ${di + 1} exercise ${ei + 1} missing exerciseId/sets/reps`)
           return null
@@ -252,13 +252,31 @@ export function validateGeneratedProgram(input: unknown, weeksCount: number): { 
           percent1RM: typeof e.percent1RM === 'number' ? Math.min(Math.max(e.percent1RM, 30), 95) : null,
           targetRPE: typeof e.targetRPE === 'number' ? Math.min(Math.max(e.targetRPE, 5), 10) : null,
           supersetGroup: typeof e.supersetGroup === 'number' ? e.supersetGroup : null,
+          warmup: e.warmup === true,
           note: typeof e.note === 'string' ? e.note : '',
         }
       })
       .filter((e): e is GeneratedProgramExercise => e !== null)
     if (exercises.length < 1) errors.push(`day ${di + 1} has no valid exercises`)
     return { name: d.name, exercises }
-  })
+  }
+  const days = (o.days ?? []).map((d, di) => parseDay(d, di))
+
+  // Optional weekly rotation: one full set of day templates per week.
+  let weekDays: GeneratedProgram['days'][] | undefined
+  if (o.weekDays != null) {
+    if (!Array.isArray(o.weekDays) || o.weekDays.length !== weeksCount) {
+      errors.push(`weekDays must have exactly ${weeksCount} weeks`)
+    } else {
+      weekDays = o.weekDays.map((wk, wi) => {
+        if (!Array.isArray(wk) || wk.length !== days.length) {
+          errors.push(`weekDays[${wi + 1}] must have ${days.length} days`)
+          return []
+        }
+        return wk.map((d, di) => parseDay(d, di))
+      })
+    }
+  }
 
   // Normalize progression: one entry per week 1..weeksCount, defaults filled in.
   const progressionByWeek = new Map<number, { intensityMultiplier: number; repDelta: number; isDeload: boolean }>()
@@ -282,6 +300,7 @@ export function validateGeneratedProgram(input: unknown, weeksCount: number): { 
       summary: o.summary as string,
       weeksCount,
       days,
+      ...(weekDays ? { weekDays } : {}),
       weeklyProgression,
     },
     errors: [],
@@ -333,7 +352,7 @@ export function resolvePlanExercises(
     return null
   }
 
-  const days = plan.days.map(day => {
+  const resolveDays = (list: GeneratedProgram['days']) => list.map(day => {
     const exercises = day.exercises
       .map(ex => {
         const match = resolveOne(ex.exerciseId)
@@ -349,8 +368,10 @@ export function resolvePlanExercises(
       .filter((e): e is GeneratedProgramExercise => e !== null)
     return { ...day, exercises }
   })
+  const days = resolveDays(plan.days)
+  const weekDays = plan.weekDays?.map(resolveDays)
 
-  return { plan: { ...plan, days }, warnings }
+  return { plan: { ...plan, days, ...(weekDays ? { weekDays } : {}) }, warnings }
 }
 
 // ----------------------------------------------------------------------------
@@ -563,8 +584,9 @@ export async function materializeProgram(
 
       for (let w = 0; w < plan.weeksCount; w++) {
         const prog = progressionByWeek.get(w + 1) ?? { week: w + 1, intensityMultiplier: 1, repDelta: 0, isDeload: false }
-        for (let d = 0; d < plan.days.length; d++) {
-          const day = plan.days[d]
+        const templates = plan.weekDays?.[w] ?? plan.days
+        for (let d = 0; d < templates.length; d++) {
+          const day = templates[d]
           if (day.exercises.length === 0) continue
           const scheduledDate = dates[w][d]
 
@@ -626,10 +648,17 @@ export async function materializeProgram(
                 : null
             const targetReps = Math.min(Math.max(ex.reps + prog.repDelta, 1), 30)
 
-            const setRows: SetInstance[] = Array.from({ length: ex.sets }, (_, si) => ({
+            const warmups = ex.warmup && targetWeight != null ? generateWarmupSets(targetWeight, unit) : []
+            const warmupRows: SetInstance[] = warmups.map((ws, si) => ({
+              id: crypto.randomUUID(), exerciseInstanceId: instId, setNumber: si + 1, setType: 'warmup' as const,
+              targetReps: ws.reps, targetWeight: ws.weight, targetRPE: null, targetDuration: null, targetDistance: null,
+              actualReps: null, actualWeight: null, actualRPE: null, actualDuration: null, actualDistance: null,
+              completed: false, skipped: false, painSignal: null,
+            }))
+            const setRows: SetInstance[] = [...warmupRows, ...Array.from({ length: ex.sets }, (_, si) => ({
               id: crypto.randomUUID(),
               exerciseInstanceId: instId,
-              setNumber: si + 1,
+              setNumber: warmupRows.length + si + 1,
               setType: 'working' as const,
               targetReps,
               targetWeight,
@@ -644,7 +673,7 @@ export async function materializeProgram(
               completed: false,
               skipped: false,
               painSignal: null,
-            }))
+            }))]
             await db.setInstances.bulkAdd(setRows)
           }
 

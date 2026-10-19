@@ -668,6 +668,8 @@ export interface GeneratedProgramExercise {
   targetRPE: number | null
   /** Exercises in the same day sharing a non-null group form a superset. */
   supersetGroup: number | null
+  /** Prepend app-generated warm-up sets below the working weight (needs a %1RM target). */
+  warmup?: boolean
   note: string
 }
 
@@ -691,6 +693,8 @@ export interface GeneratedProgram {
   summary: string
   weeksCount: number
   days: GeneratedProgramDay[]
+  /** Optional per-week day templates: weeksCount entries, each the same length as days. Week w uses weekDays[w] instead of days, so movements can rotate. */
+  weekDays?: GeneratedProgramDay[][]
   weeklyProgression: GeneratedProgramWeek[]
 }
 
