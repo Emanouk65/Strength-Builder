@@ -89,6 +89,10 @@ export function ProgramInboxCard() {
           </div>
         )}
 
+        {preview?.plan.weekDays && (
+          <p className="text-xs text-muted-foreground mt-3">Week 1 shown. The movements after each main lift change every week.</p>
+        )}
+
         {preview && preview.warnings.length > 0 && (
           <ul className="mt-3 text-xs text-muted-foreground list-disc pl-4 space-y-0.5">
             {preview.warnings.map((w, i) => <li key={i}>{w}</li>)}
