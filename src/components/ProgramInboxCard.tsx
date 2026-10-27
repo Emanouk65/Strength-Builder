@@ -1,14 +1,16 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { getCurrentUser, resolveExercises } from '@/db'
-import { fetchInboxProgram, installInboxProgram, previewInboxProgram, type InboxState } from '@/lib/programInbox'
+import { fetchInboxProgram, installInboxProgram, previewInboxProgram, updateInstalledProgram, type InboxState } from '@/lib/programInbox'
 import type { GenerationResult } from '@/lib/programGeneration'
 import { Button, Card, CardContent } from '@/components/ui'
 
 /**
  * Shows a training block Cato left in the LifeOS repo and installs it with one
- * tap. Renders nothing when sync is off, the inbox is empty, or the block is
- * already installed, so it costs the Coach page nothing in the normal case.
+ * tap. When the installed block comes back with a higher revision (Cato's weekly
+ * adaptation changed loads or movements), it offers to update the remaining
+ * workouts instead. Renders nothing when sync is off, the inbox is empty, or the
+ * block is installed and current, so it costs the Coach page nothing normally.
  */
 export function ProgramInboxCard() {
   const navigate = useNavigate()
@@ -17,6 +19,7 @@ export function ProgramInboxCard() {
   const [names, setNames] = useState<Map<string, string>>(new Map())
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [done, setDone] = useState<string | null>(null)
 
   useEffect(() => {
     let alive = true
@@ -24,7 +27,7 @@ export function ProgramInboxCard() {
       const s = await fetchInboxProgram()
       if (!alive) return
       setState(s)
-      if (s.program && !s.installed) {
+      if (s.program && (!s.installed || s.updateAvailable)) {
         try {
           const user = await getCurrentUser()
           if (!user) return
@@ -50,9 +53,24 @@ export function ProgramInboxCard() {
       </div>
     )
   }
-  if (!state.program || state.installed) return null
+  if (!state.program || (state.installed && !state.updateAvailable)) return null
 
   const p = state.program
+  const isUpdate = state.installed && state.updateAvailable
+
+  const handleUpdate = async () => {
+    setBusy(true)
+    setError(null)
+    try {
+      const r = await updateInstalledProgram(p)
+      setDone(`Updated ${r.rebuilt} remaining workout${r.rebuilt === 1 ? '' : 's'}; ${r.kept} kept as logged.`)
+      setState({ ...state, updateAvailable: false, installedRevision: p.revision })
+      setTimeout(() => navigate('/', { replace: true }), 900)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to update the program.')
+      setBusy(false)
+    }
+  }
 
   const handleInstall = async () => {
     setBusy(true)
@@ -64,6 +82,40 @@ export function ProgramInboxCard() {
       setError(e instanceof Error ? e.message : 'Failed to install the program.')
       setBusy(false)
     }
+  }
+
+  if (isUpdate) {
+    return (
+      <Card>
+        <CardContent className="pt-5 pb-5">
+          <p className="text-[10px] uppercase tracking-widest text-muted-foreground">Update from {p.source} · revision {p.revision}</p>
+          <p className="text-lg font-bold tracking-tight mt-1">{preview?.plan.name ?? 'Your current block'}</p>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Next sessions re-planned from what you logged. Completed workouts are not touched.
+          </p>
+          {p.changelog.length > 0 && (
+            <ul className="mt-3 text-sm list-disc pl-4 space-y-0.5">
+              {p.changelog.map((c, i) => <li key={i}>{c}</li>)}
+            </ul>
+          )}
+          {preview && preview.warnings.length > 0 && (
+            <ul className="mt-3 text-xs text-muted-foreground list-disc pl-4 space-y-0.5">
+              {preview.warnings.map((w, i) => <li key={i}>{w}</li>)}
+            </ul>
+          )}
+          {error && <p className="text-sm text-destructive mt-3">{error}</p>}
+          {done && <p className="text-sm mt-3">{done}</p>}
+          <div className="mt-4 flex gap-2">
+            <Button onClick={handleUpdate} disabled={busy || !preview || !!done}>
+              {busy ? 'Updating…' : 'Update remaining workouts'}
+            </Button>
+          </div>
+          <p className="text-[11px] text-muted-foreground mt-3">
+            Rebuilds planned sessions from today on with the new loads and movements. Nothing you have logged changes.
+          </p>
+        </CardContent>
+      </Card>
+    )
   }
 
   return (
