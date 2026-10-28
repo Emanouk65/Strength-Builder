@@ -2,9 +2,24 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 import path from 'path'
+import { execSync } from 'child_process'
+
+// Build stamp shown on the Settings page, so a phone can tell which build it is running.
+// Build number = commits on the branch; the date is the build time in UTC.
+function git(cmd: string, fallback: string): string {
+  try { return execSync(`git ${cmd}`, { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim() || fallback } catch { return fallback }
+}
+const BUILD_NUMBER = git('rev-list --count HEAD', '0')
+const BUILD_COMMIT = git('rev-parse --short HEAD', 'dev')
+const BUILD_TIME = new Date().toISOString()
 
 export default defineConfig({
   base: '/Strength-Builder/',
+  define: {
+    __BUILD_NUMBER__: JSON.stringify(BUILD_NUMBER),
+    __BUILD_COMMIT__: JSON.stringify(BUILD_COMMIT),
+    __BUILD_TIME__: JSON.stringify(BUILD_TIME),
+  },
   plugins: [
     react(),
     VitePWA({

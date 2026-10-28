@@ -8,6 +8,7 @@ import type { UserPreferences, AppSettings, CatoSyncConfig } from '@/lib/types'
 import { CATO_SYNC_DEFAULTS, saveCatoSyncConfig, testCatoConnection, backfillCatoSync } from '@/lib/catoSync'
 
 export function Settings() {
+  const buildDate = new Date(__BUILD_TIME__).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
   const navigate = useNavigate()
   const localUser = useLiveQuery(() => getCurrentUser())
 
@@ -389,11 +390,11 @@ export function Settings() {
           </CardContent>
         </Card>
 
-        {/* App Info */}
+        {/* App Info: the build stamp is the only way to tell from the phone which deploy it runs */}
         <Card>
           <CardContent className="py-4 text-center">
             <p className="text-sm font-medium tracking-wider">FORGE</p>
-            <p className="text-xs text-muted-foreground">Version 0.1.0</p>
+            <p className="text-xs text-muted-foreground">Build {__BUILD_NUMBER__} · {buildDate} · {__BUILD_COMMIT__}</p>
             <p className="text-xs text-muted-foreground mt-2">
               Every rep shapes who you become.
             </p>
