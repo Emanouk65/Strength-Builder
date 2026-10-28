@@ -253,6 +253,7 @@ export function validateGeneratedProgram(input: unknown, weeksCount: number): { 
           targetRPE: typeof e.targetRPE === 'number' ? Math.min(Math.max(e.targetRPE, 5), 10) : null,
           supersetGroup: typeof e.supersetGroup === 'number' ? e.supersetGroup : null,
           warmup: e.warmup === true,
+          targetWeight: typeof e.targetWeight === 'number' && e.targetWeight > 0 && e.targetWeight <= 2000 ? e.targetWeight : null,
           note: typeof e.note === 'string' ? e.note : '',
         }
       })
@@ -503,38 +504,196 @@ function scheduleDates(startDate: Date, weeks: number, daysPerWeek: number, pref
   return result
 }
 
+/** Delete a planned workout and everything hanging off it (blocks, instances, sets). Call inside a transaction. */
+async function deleteWorkoutTree(w: Workout): Promise<void> {
+  const blocks = await db.workoutBlocks.where('workoutId').equals(w.id).toArray()
+  const blockIds = blocks.map(b => b.id)
+  const instances = blockIds.length
+    ? await db.exerciseInstances.where('blockId').anyOf(blockIds).toArray()
+    : []
+  const instanceIds = instances.map(i => i.id)
+  if (instanceIds.length) {
+    const setIds = await db.setInstances.where('exerciseInstanceId').anyOf(instanceIds).primaryKeys()
+    await db.setInstances.bulkDelete(setIds as string[])
+  }
+  await db.exerciseInstances.bulkDelete(instanceIds)
+  await db.workoutBlocks.bulkDelete(blockIds)
+  await db.workouts.delete(w.id)
+}
+
+interface BuildContext {
+  userId: string
+  programId: string
+  unit: 'lbs' | 'kg'
+  e1rmById: Map<string, number>
+  sessionMinutes: number
+  now: Date
+  /** Superset member instance ids, linked after the transaction. */
+  supersetGroups: string[][]
+}
+
+/**
+ * Create one planned workout for (week, day) of a plan. Weights: an explicit targetWeight
+ * from the plan wins (an external coach set it from logged sets, so the week multiplier is
+ * not applied again); otherwise e1RM × %1RM × week multiplier; otherwise null, which the
+ * readiness-aware prefill fills at session start.
+ */
+async function createProgramWorkout(
+  ctx: BuildContext,
+  w: number,
+  d: number,
+  day: GeneratedProgram['days'][number],
+  prog: GeneratedProgram['weeklyProgression'][number],
+  scheduledDate: Date
+): Promise<void> {
+  const workout: Workout = {
+    id: crypto.randomUUID(),
+    userId: ctx.userId,
+    weekId: null,
+    programId: ctx.programId,
+    programWeek: w + 1,
+    programDay: d + 1,
+    workoutType: 'programmed',
+    dayOfWeek: scheduledDate.getDay(),
+    scheduledDate,
+    completedAt: null,
+    status: 'planned',
+    lastEditedAt: ctx.now,
+    name: prog.isDeload ? `${day.name} · Wk ${w + 1} (deload)` : `${day.name} · Wk ${w + 1}`,
+    totalDuration: 0,
+    coachingNotes: [],
+    skipReason: null,
+  }
+  await db.workouts.add(workout)
+
+  const blockId = crypto.randomUUID()
+  await db.workoutBlocks.add({
+    id: blockId,
+    workoutId: workout.id,
+    type: 'primary',
+    order: 0,
+    timeTarget: ctx.sessionMinutes,
+    intent: prog.isDeload ? 'Deload — keep it crisp and easy' : '',
+    completed: false,
+  })
+
+  const groupInstanceIds = new Map<number, string[]>()
+  for (let i = 0; i < day.exercises.length; i++) {
+    const ex = day.exercises[i]
+    const instId = crypto.randomUUID()
+    await db.exerciseInstances.add({
+      id: instId,
+      blockId,
+      exerciseId: ex.exerciseId,
+      order: i,
+      notes: ex.note ?? '',
+      substituteFor: null,
+      substitutionReason: null,
+      supersetGroupId: null,
+    })
+    if (ex.supersetGroup != null) {
+      const list = groupInstanceIds.get(ex.supersetGroup) ?? []
+      list.push(instId)
+      groupInstanceIds.set(ex.supersetGroup, list)
+    }
+
+    const e1rm = ctx.e1rmById.get(ex.exerciseId)
+    const targetWeight =
+      ex.targetWeight != null && ex.targetWeight > 0
+        ? roundToIncrement(ex.targetWeight, ctx.unit)
+        : e1rm != null && ex.percent1RM != null
+          ? roundToIncrement(e1rm * (ex.percent1RM / 100) * prog.intensityMultiplier, ctx.unit)
+          : null
+    const targetReps = Math.min(Math.max(ex.reps + prog.repDelta, 1), 30)
+
+    const warmups = ex.warmup && targetWeight != null ? generateWarmupSets(targetWeight, ctx.unit) : []
+    const warmupRows: SetInstance[] = warmups.map((ws, si) => ({
+      id: crypto.randomUUID(), exerciseInstanceId: instId, setNumber: si + 1, setType: 'warmup' as const,
+      targetReps: ws.reps, targetWeight: ws.weight, targetRPE: null, targetDuration: null, targetDistance: null,
+      actualReps: null, actualWeight: null, actualRPE: null, actualDuration: null, actualDistance: null,
+      completed: false, skipped: false, painSignal: null,
+    }))
+    const setRows: SetInstance[] = [...warmupRows, ...Array.from({ length: ex.sets }, (_, si) => ({
+      id: crypto.randomUUID(),
+      exerciseInstanceId: instId,
+      setNumber: warmupRows.length + si + 1,
+      setType: 'working' as const,
+      targetReps,
+      targetWeight,
+      targetRPE: ex.targetRPE,
+      targetDuration: null,
+      targetDistance: null,
+      actualReps: null,
+      actualWeight: null,
+      actualRPE: null,
+      actualDuration: null,
+      actualDistance: null,
+      completed: false,
+      skipped: false,
+      painSignal: null,
+    }))]
+    await db.setInstances.bulkAdd(setRows)
+  }
+
+  for (const members of groupInstanceIds.values()) {
+    if (members.length >= 2) ctx.supersetGroups.push(members)
+  }
+}
+
+async function buildContext(userId: string, programId: string, now: Date): Promise<BuildContext & { preferredDays: number[] }> {
+  const user = await db.users.get(userId)
+  const summaries = await getExerciseRecordSummaries(userId)
+  return {
+    userId,
+    programId,
+    unit: user?.preferences.weightUnit ?? 'lbs',
+    e1rmById: new Map(summaries.map(s => [s.exerciseId, s.allTimePR.estimated1RM])),
+    sessionMinutes: user?.preferences.sessionDurationMinutes ?? 60,
+    now,
+    supersetGroups: [],
+    preferredDays: user?.preferences.preferredDays ?? [],
+  }
+}
+
+async function linkSupersets(groups: string[][]): Promise<void> {
+  // addExerciseToSuperset opens its own transaction, so this runs after the main one.
+  for (const members of groups) {
+    let groupId: string | null = null
+    for (const instId of members) {
+      groupId = await addExerciseToSuperset(instId, groupId)
+    }
+  }
+}
+
+/** Where a program came from, when it was installed from the LifeOS inbox. */
+export interface ProgramOrigin {
+  inboxId?: string | null
+  inboxRevision?: number | null
+}
+
 /**
  * Persist an accepted plan: archives any existing active program (deleting its
  * not-yet-started planned workouts, keeping completed history), then creates
  * the Program row and every concrete workout (status 'planned', weekId null,
  * programId set) with blocks, instances, supersets, and computed set targets.
- * Weights come from e1RM × %1RM × week multiplier; null targets fall through
- * to the readiness-aware prefill at session start.
+ * Weights come from an explicit targetWeight, else e1RM × %1RM × week multiplier;
+ * null targets fall through to the readiness-aware prefill at session start.
  */
 export async function materializeProgram(
   userId: string,
   gen: GenerationResult,
   goalText: string,
-  startDate: Date
+  startDate: Date,
+  origin: ProgramOrigin = {}
 ): Promise<string> {
-  const user = await db.users.get(userId)
-  const unit = user?.preferences.weightUnit ?? 'lbs'
-  const preferredDays = user?.preferences.preferredDays ?? []
-
-  const summaries = await getExerciseRecordSummaries(userId)
-  const e1rmById = new Map(summaries.map(s => [s.exerciseId, s.allTimePR.estimated1RM]))
+  const programId = crypto.randomUUID()
+  const now = new Date()
+  const ctx = await buildContext(userId, programId, now)
 
   const { plan } = gen
   const daysPerWeek = plan.days.length
-  const dates = scheduleDates(startDate, plan.weeksCount, daysPerWeek, preferredDays)
+  const dates = scheduleDates(startDate, plan.weeksCount, daysPerWeek, ctx.preferredDays)
   const progressionByWeek = new Map(plan.weeklyProgression.map(w => [w.week, w]))
-
-  const programId = crypto.randomUUID()
-  const now = new Date()
-
-  // Superset instance ids collected during the transaction, linked after it
-  // (addExerciseToSuperset opens its own transaction).
-  const supersetGroups: string[][] = []
 
   await db.transaction(
     'rw',
@@ -548,21 +707,7 @@ export async function materializeProgram(
           .where('programId').equals(old.id)
           .filter(w => w.status === 'planned' || w.status === 'draft')
           .toArray()
-        for (const w of stale) {
-          const blocks = await db.workoutBlocks.where('workoutId').equals(w.id).toArray()
-          const blockIds = blocks.map(b => b.id)
-          const instances = blockIds.length
-            ? await db.exerciseInstances.where('blockId').anyOf(blockIds).toArray()
-            : []
-          const instanceIds = instances.map(i => i.id)
-          if (instanceIds.length) {
-            const setIds = await db.setInstances.where('exerciseInstanceId').anyOf(instanceIds).primaryKeys()
-            await db.setInstances.bulkDelete(setIds as string[])
-          }
-          await db.exerciseInstances.bulkDelete(instanceIds)
-          await db.workoutBlocks.bulkDelete(blockIds)
-          await db.workouts.delete(w.id)
-        }
+        for (const w of stale) await deleteWorkoutTree(w)
       }
 
       const program: Program = {
@@ -579,6 +724,8 @@ export async function materializeProgram(
         model: gen.model,
         plan,
         warnings: gen.warnings,
+        inboxId: origin.inboxId ?? null,
+        inboxRevision: origin.inboxRevision ?? null,
       }
       await db.programs.add(program)
 
@@ -588,113 +735,82 @@ export async function materializeProgram(
         for (let d = 0; d < templates.length; d++) {
           const day = templates[d]
           if (day.exercises.length === 0) continue
-          const scheduledDate = dates[w][d]
-
-          const workout: Workout = {
-            id: crypto.randomUUID(),
-            userId,
-            weekId: null,
-            programId,
-            programWeek: w + 1,
-            programDay: d + 1,
-            workoutType: 'programmed',
-            dayOfWeek: scheduledDate.getDay(),
-            scheduledDate,
-            completedAt: null,
-            status: 'planned',
-            lastEditedAt: now,
-            name: prog.isDeload ? `${day.name} · Wk ${w + 1} (deload)` : `${day.name} · Wk ${w + 1}`,
-            totalDuration: 0,
-            coachingNotes: [],
-            skipReason: null,
-          }
-          await db.workouts.add(workout)
-
-          const blockId = crypto.randomUUID()
-          await db.workoutBlocks.add({
-            id: blockId,
-            workoutId: workout.id,
-            type: 'primary',
-            order: 0,
-            timeTarget: user?.preferences.sessionDurationMinutes ?? 60,
-            intent: prog.isDeload ? 'Deload — keep it crisp and easy' : '',
-            completed: false,
-          })
-
-          const groupInstanceIds = new Map<number, string[]>()
-          for (let i = 0; i < day.exercises.length; i++) {
-            const ex = day.exercises[i]
-            const instId = crypto.randomUUID()
-            await db.exerciseInstances.add({
-              id: instId,
-              blockId,
-              exerciseId: ex.exerciseId,
-              order: i,
-              notes: ex.note ?? '',
-              substituteFor: null,
-              substitutionReason: null,
-              supersetGroupId: null,
-            })
-            if (ex.supersetGroup != null) {
-              const list = groupInstanceIds.get(ex.supersetGroup) ?? []
-              list.push(instId)
-              groupInstanceIds.set(ex.supersetGroup, list)
-            }
-
-            const e1rm = e1rmById.get(ex.exerciseId)
-            const targetWeight =
-              e1rm != null && ex.percent1RM != null
-                ? roundToIncrement(e1rm * (ex.percent1RM / 100) * prog.intensityMultiplier, unit)
-                : null
-            const targetReps = Math.min(Math.max(ex.reps + prog.repDelta, 1), 30)
-
-            const warmups = ex.warmup && targetWeight != null ? generateWarmupSets(targetWeight, unit) : []
-            const warmupRows: SetInstance[] = warmups.map((ws, si) => ({
-              id: crypto.randomUUID(), exerciseInstanceId: instId, setNumber: si + 1, setType: 'warmup' as const,
-              targetReps: ws.reps, targetWeight: ws.weight, targetRPE: null, targetDuration: null, targetDistance: null,
-              actualReps: null, actualWeight: null, actualRPE: null, actualDuration: null, actualDistance: null,
-              completed: false, skipped: false, painSignal: null,
-            }))
-            const setRows: SetInstance[] = [...warmupRows, ...Array.from({ length: ex.sets }, (_, si) => ({
-              id: crypto.randomUUID(),
-              exerciseInstanceId: instId,
-              setNumber: warmupRows.length + si + 1,
-              setType: 'working' as const,
-              targetReps,
-              targetWeight,
-              targetRPE: ex.targetRPE,
-              targetDuration: null,
-              targetDistance: null,
-              actualReps: null,
-              actualWeight: null,
-              actualRPE: null,
-              actualDuration: null,
-              actualDistance: null,
-              completed: false,
-              skipped: false,
-              painSignal: null,
-            }))]
-            await db.setInstances.bulkAdd(setRows)
-          }
-
-          for (const members of groupInstanceIds.values()) {
-            if (members.length >= 2) supersetGroups.push(members)
-          }
+          await createProgramWorkout(ctx, w, d, day, prog, dates[w][d])
         }
       }
     }
   )
 
-  // Link supersets outside the main transaction.
-  for (const members of supersetGroups) {
-    let groupId: string | null = null
-    for (const instId of members) {
-      groupId = await addExerciseToSuperset(instId, groupId)
-    }
-  }
-
+  await linkSupersets(ctx.supersetGroups)
   return programId
 }
+
+/**
+ * Re-plan an active program from a revised plan (a new revision of the same block from the
+ * LifeOS inbox). Planned workouts scheduled on or after `fromDate` are rebuilt from the new
+ * plan, with its targetWeights; anything completed, in progress or dated earlier is kept as
+ * it was. The schedule itself (which weekday each session falls on) does not move.
+ */
+export async function rematerializeProgram(
+  userId: string,
+  programId: string,
+  gen: GenerationResult,
+  fromDate: Date,
+  origin: ProgramOrigin = {}
+): Promise<{ rebuilt: number; kept: number }> {
+  const program = await db.programs.get(programId)
+  if (!program || program.userId !== userId) throw new Error('Program not found on this device.')
+  const now = new Date()
+  const ctx = await buildContext(userId, programId, now)
+
+  const { plan } = gen
+  const daysPerWeek = plan.days.length
+  const dates = scheduleDates(new Date(program.startDate), plan.weeksCount, daysPerWeek, ctx.preferredDays)
+  const progressionByWeek = new Map(plan.weeklyProgression.map(w => [w.week, w]))
+  const from = new Date(fromDate)
+  from.setHours(0, 0, 0, 0)
+
+  let rebuilt = 0
+  let kept = 0
+  await db.transaction(
+    'rw',
+    [db.programs, db.workouts, db.workoutBlocks, db.exerciseInstances, db.setInstances],
+    async () => {
+      const current = await db.workouts.where('programId').equals(programId).toArray()
+      const bySlot = new Map(current.map(w => [`${w.programWeek}-${w.programDay}`, w]))
+
+      for (let w = 0; w < plan.weeksCount; w++) {
+        const prog = progressionByWeek.get(w + 1) ?? { week: w + 1, intensityMultiplier: 1, repDelta: 0, isDeload: false }
+        const templates = plan.weekDays?.[w] ?? plan.days
+        for (let d = 0; d < templates.length; d++) {
+          const day = templates[d]
+          const scheduledDate = dates[w]?.[d]
+          if (!scheduledDate) continue
+          const existing = bySlot.get(`${w + 1}-${d + 1}`)
+          if (scheduledDate < from) { if (existing) kept++; continue }
+          if (existing && existing.status !== 'planned' && existing.status !== 'draft') { kept++; continue }
+          if (existing) await deleteWorkoutTree(existing)
+          if (day.exercises.length === 0) continue
+          await createProgramWorkout(ctx, w, d, day, prog, existing?.scheduledDate ? new Date(existing.scheduledDate) : scheduledDate)
+          rebuilt++
+        }
+      }
+
+      await db.programs.update(programId, {
+        plan,
+        warnings: gen.warnings,
+        weeksCount: plan.weeksCount,
+        summary: plan.summary,
+        inboxId: origin.inboxId ?? program.inboxId ?? null,
+        inboxRevision: origin.inboxRevision ?? program.inboxRevision ?? null,
+      })
+    }
+  )
+
+  await linkSupersets(ctx.supersetGroups)
+  return { rebuilt, kept }
+}
+
 
 /** Default program start: today (local). */
 export function defaultStartDate(): Date {

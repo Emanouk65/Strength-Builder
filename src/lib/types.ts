@@ -624,6 +624,8 @@ export interface CatoSyncConfig {
   lastError: string | null
   /** Id of the last program installed from the repo inbox (data/body/program/active.json). */
   installedProgramId?: string | null
+  /** Revision of that program applied on this device; a higher revision in the inbox is an update. */
+  installedProgramRevision?: number | null
 }
 
 /** Persisted singleton settings row (keyed by a fixed id). */
@@ -670,6 +672,12 @@ export interface GeneratedProgramExercise {
   supersetGroup: number | null
   /** Prepend app-generated warm-up sets below the working weight (needs a %1RM target). */
   warmup?: boolean
+  /**
+   * Absolute working load in the user's unit, set by an external coach (Cato's weekly
+   * adaptation) from the sets actually logged. Overrides percent1RM × e1RM, and the week
+   * multiplier is not applied again. Null or absent: fall back to percent1RM.
+   */
+  targetWeight?: number | null
   note: string
 }
 
@@ -712,6 +720,9 @@ export interface Program {
   model: string // Claude model id used to generate
   plan: GeneratedProgram // validated raw plan, kept for reference
   warnings: string[] // exercise-mapping fallbacks applied during resolution
+  /** Set when the program came from the LifeOS inbox: the block id and the revision applied. */
+  inboxId?: string | null
+  inboxRevision?: number | null
 }
 
 // ----------------------------------------------------------------------------
