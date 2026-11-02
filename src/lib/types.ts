@@ -622,6 +622,14 @@ export interface CatoSyncConfig {
   lastSyncedAt: string | null
   lastSyncedDate: string | null
   lastError: string | null
+  /** One line about the last sync run, e.g. "Nov 2, 7:51 AM: 1 day written (latest 2026-11-02)." */
+  lastResult: string | null
+  /** When the token last proved it can write: a day file or the heartbeat landed. */
+  verifiedAt: string | null
+  /** When _status.json was last written; refreshed at most once a day on open. */
+  lastHeartbeatAt: string | null
+  /** When the current token was pasted. GitHub does not expose the expiry to the app. */
+  tokenSavedAt: string | null
   /** Id of the last program installed from the repo inbox (data/body/program/active.json). */
   installedProgramId?: string | null
   /** Revision of that program applied on this device; a higher revision in the inbox is an update. */
