@@ -5,7 +5,7 @@ import { db, getCurrentUser, clearUserData, exportUserData, importUserData, getA
 import { Button, Card, CardContent, CardHeader, CardTitle, Input, Badge } from '@/components/ui'
 import { cn } from '@/lib/utils'
 import type { UserPreferences, AppSettings, CatoSyncConfig } from '@/lib/types'
-import { CATO_SYNC_DEFAULTS, saveCatoSyncConfig, testCatoConnection, backfillCatoSync } from '@/lib/catoSync'
+import { CATO_SYNC_DEFAULTS, saveCatoSyncConfig, verifyCatoConnection, writeHeartbeat, backfillCatoSync, describeReport } from '@/lib/catoSync'
 
 export function Settings() {
   const buildDate = new Date(__BUILD_TIME__).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
@@ -409,36 +409,55 @@ function CatoSyncCard({ config }: { config: CatoSyncConfig | undefined }) {
   const cfg = { ...CATO_SYNC_DEFAULTS, ...(config ?? {}) }
   const [token, setToken] = useState('')
   const [repo, setRepo] = useState(cfg.repo)
-  const [busy, setBusy] = useState<null | 'connect' | 'backfill'>(null)
-  const [message, setMessage] = useState<string | null>(null)
+  const [busy, setBusy] = useState<null | 'connect' | 'backfill' | 'check'>(null)
+  const [message, setMessage] = useState<{ text: string; ok: boolean } | null>(null)
   const connected = cfg.enabled && Boolean(cfg.token)
+  const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : null)
 
+  // Connect: prove the token can read AND write (a real commit of _status.json) before saving
+  // it, then backfill and report what actually landed. Nothing is saved when the check fails.
   const connect = async () => {
     setBusy('connect')
     setMessage(null)
-    const next = { ...cfg, repo: repo.trim() || cfg.repo, token: token.trim() || cfg.token }
-    const err = await testCatoConnection(next)
-    if (err) {
-      setMessage(err)
-    } else {
-      await saveCatoSyncConfig({ ...next, enabled: true, lastError: null })
-      setToken('')
-      setMessage('Connected. Syncing the last 30 days now.')
-      setBusy('backfill')
-      await backfillCatoSync(30)
-      setMessage('Connected. The last 30 days are synced.')
+    const newToken = token.trim()
+    const next = { ...cfg, repo: repo.trim() || cfg.repo, token: newToken || cfg.token }
+    const v = await verifyCatoConnection(next)
+    if (!v.ok) {
+      setMessage({ ok: false, text: `${v.error} ${newToken ? 'The new token was not saved.' : ''}`.trim() })
+      setBusy(null)
+      return
     }
+    const now = new Date().toISOString()
+    await saveCatoSyncConfig({ ...next, enabled: true, lastError: null, verifiedAt: now, lastHeartbeatAt: now, ...(newToken ? { tokenSavedAt: now } : {}) })
+    setToken('')
+    setMessage({ ok: true, text: `Token works: wrote ${v.file} to ${next.repo}. Syncing the last 30 days…` })
+    setBusy('backfill')
+    const report = await backfillCatoSync(30)
+    setMessage(
+      report.error
+        ? { ok: false, text: `Token works, but the backfill hit a problem: ${describeReport(report)}` }
+        : { ok: true, text: `Token works: wrote ${v.file} to ${next.repo}. Backfill: ${describeReport(report)}` }
+    )
+    setBusy(null)
+  }
+
+  const check = async () => {
+    setBusy('check')
+    setMessage(null)
+    const v = await writeHeartbeat('check')
+    setMessage(v.ok ? { ok: true, text: `Token works: wrote ${v.file} to ${cfg.repo} just now.` } : { ok: false, text: v.error })
     setBusy(null)
   }
 
   const backfill = async () => {
     setBusy('backfill')
     setMessage(null)
-    await backfillCatoSync(30)
+    const report = await backfillCatoSync(30)
+    setMessage({ ok: !report.error, text: `Last 30 days: ${describeReport(report)}` })
     setBusy(null)
   }
 
-  const lastSynced = cfg.lastSyncedAt ? new Date(cfg.lastSyncedAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : null
+  const rejected = Boolean(cfg.lastError && /token|write to this repo/i.test(cfg.lastError))
 
   return (
     <Card>
@@ -452,14 +471,23 @@ function CatoSyncCard({ config }: { config: CatoSyncConfig | undefined }) {
         <div className="flex items-center justify-between">
           <span className="text-sm text-muted-foreground">Status</span>
           {connected ? (
-            <Badge variant={cfg.lastError ? 'warning' : 'success'}>{cfg.lastError ? 'Retrying' : 'On'}</Badge>
+            <Badge variant={rejected ? 'destructive' : cfg.lastError ? 'warning' : 'success'}>{rejected ? 'Token rejected' : cfg.lastError ? 'Retrying' : 'On'}</Badge>
           ) : (
             <Badge variant="outline">Off</Badge>
           )}
         </div>
         {connected && (
           <div className="space-y-1 text-xs text-muted-foreground">
-            <p>{lastSynced ? `Last synced ${lastSynced}${cfg.lastSyncedDate ? `, latest day written ${cfg.lastSyncedDate}` : ''}.` : 'Not synced yet.'}</p>
+            <p>
+              {cfg.verifiedAt
+                ? `Token last proved it can write on ${fmt(cfg.verifiedAt)}.`
+                : 'The token has not written anything yet. Tap Check now.'}
+            </p>
+            {cfg.tokenSavedAt && (
+              <p>Token saved {fmt(cfg.tokenSavedAt)}. GitHub does not tell the app when it expires, so give a new token a custom expiry of up to a year.</p>
+            )}
+            <p>{cfg.lastResult ? `Last sync ${cfg.lastResult}` : 'Not synced yet.'}</p>
+            {cfg.lastSyncedDate && <p>Latest day in the repo: {cfg.lastSyncedDate}.</p>}
             {cfg.pending.length > 0 && <p>{cfg.pending.length} day{cfg.pending.length === 1 ? '' : 's'} waiting to send.</p>}
             {cfg.lastError && <p className="text-destructive">{cfg.lastError}</p>}
           </div>
@@ -478,7 +506,7 @@ function CatoSyncCard({ config }: { config: CatoSyncConfig | undefined }) {
             placeholder="github_pat_..."
             value={token}
             onChange={(e) => setToken(e.target.value)}
-            hint={connected ? 'Paste a new token to replace the saved one' : 'Fine-grained token: this repo only, Contents read and write'}
+            hint={connected ? 'Paste a new token to replace the saved one; it is checked with a real write before it is saved' : 'Fine-grained token: this repo only, Contents read and write'}
           />
           <Button
             variant="secondary"
@@ -491,6 +519,9 @@ function CatoSyncCard({ config }: { config: CatoSyncConfig | undefined }) {
           </Button>
           {connected && (
             <div className="flex gap-2">
+              <Button variant="outline" className="flex-1" onClick={check} loading={busy === 'check'} disabled={busy !== null}>
+                Check now
+              </Button>
               <Button variant="outline" className="flex-1" onClick={backfill} loading={busy === 'backfill'} disabled={busy !== null}>
                 Sync last 30 days
               </Button>
@@ -498,13 +529,13 @@ function CatoSyncCard({ config }: { config: CatoSyncConfig | undefined }) {
                 variant="ghost"
                 className="flex-1"
                 disabled={busy !== null}
-                onClick={async () => { await saveCatoSyncConfig({ enabled: false }); setMessage('Sync turned off. Your token is still saved on this device.') }}
+                onClick={async () => { await saveCatoSyncConfig({ enabled: false }); setMessage({ ok: true, text: 'Sync turned off. Your token is still saved on this device.' }) }}
               >
                 Turn off
               </Button>
             </div>
           )}
-          {message && <p className="text-xs text-muted-foreground text-center">{message}</p>}
+          {message && <p className={cn('text-xs text-center', message.ok ? 'text-muted-foreground' : 'text-destructive')}>{message.text}</p>}
         </div>
       </CardContent>
     </Card>

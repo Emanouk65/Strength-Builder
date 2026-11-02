@@ -24,6 +24,10 @@ export const CATO_SYNC_DEFAULTS: CatoSyncConfig = {
   lastSyncedAt: null,
   lastSyncedDate: null,
   lastError: null,
+  lastResult: null,
+  verifiedAt: null,
+  lastHeartbeatAt: null,
+  tokenSavedAt: null,
   installedProgramId: null,
 }
 
@@ -203,12 +207,92 @@ export async function testCatoConnection(cfg: CatoSyncConfig): Promise<string | 
   try {
     const r = await gh(cfg, '')
     if (!r.ok) return explain(r.status, `GitHub returned ${r.status}.`)
-    const j = await r.json()
-    if (j?.permissions && !j.permissions.push) return 'The token can read the repo but not write to it.'
     return null
   } catch {
     return 'No connection to GitHub. Check your network and try again.'
   }
+}
+
+/** Create or update one file on the sync branch. `sha` is the current blob when the file exists. */
+async function putRepoFile(cfg: CatoSyncConfig, filePath: string, body: string, message: string, sha?: string): Promise<void> {
+  const put = await gh(cfg, `contents/${filePath}`, {
+    method: 'PUT',
+    body: JSON.stringify({ message, content: toBase64(body), branch: cfg.branch, ...(sha ? { sha } : {}) }),
+  })
+  if (!put.ok) throw new Error(explain(put.status, `GitHub returned ${put.status}.`))
+}
+
+/** Current blob sha and content of a file; empty when it does not exist. Throws on any other failure. */
+async function repoFile(cfg: CatoSyncConfig, filePath: string): Promise<{ sha?: string; content?: string }> {
+  const cur = await gh(cfg, `contents/${filePath}?ref=${encodeURIComponent(cfg.branch)}`)
+  if (cur.status === 404) return {}
+  if (!cur.ok) throw new Error(explain(cur.status, `GitHub returned ${cur.status}.`))
+  const j = await cur.json()
+  return { sha: j.sha, content: typeof j.content === 'string' ? fromBase64(j.content) : undefined }
+}
+
+/**
+ * The heartbeat file, `<path>/_status.json`. Writing it is the only proof the token can
+ * write: GitHub's repo metadata reflects the owner's permissions, not the token's, and the
+ * browser cannot read the token-expiry header (not CORS-exposed). Connect and "Check now"
+ * write it, and the app refreshes it once a day on open, so Cato can tell "token dead" from
+ * "no sessions". The leading underscore keeps LifeOS's date-file readers from picking it up.
+ */
+export const STATUS_FILE = '_status.json'
+
+export type HeartbeatReason = 'connect' | 'check' | 'daily'
+
+type WriteOutcome = { ok: true; file: string } | { ok: false; error: string }
+
+async function putHeartbeat(cfg: CatoSyncConfig, reason: HeartbeatReason): Promise<WriteOutcome> {
+  const filePath = `${cfg.path}/${STATUS_FILE}`
+  const body =
+    JSON.stringify(
+      {
+        source: 'FORGE',
+        schema: 1,
+        checkedAt: new Date().toISOString(),
+        reason,
+        build: __BUILD_NUMBER__,
+        commit: __BUILD_COMMIT__,
+        tokenSavedAt: cfg.tokenSavedAt,
+        lastSyncedAt: cfg.lastSyncedAt,
+        lastSyncedDate: cfg.lastSyncedDate,
+        pending: cfg.pending.length,
+        lastError: cfg.lastError,
+      },
+      null,
+      2
+    ) + '\n'
+  try {
+    const { sha } = await repoFile(cfg, filePath)
+    await putRepoFile(cfg, filePath, body, `FORGE: connection check (${reason})`, sha)
+    return { ok: true, file: filePath }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : 'Could not write to GitHub.' }
+  }
+}
+
+/**
+ * Verify a token before it is saved: can it read the repo, and can it write to it? The write
+ * is a real commit of the heartbeat file, so a token with the wrong permissions fails here
+ * instead of silently failing on every sync afterwards. Saves nothing.
+ */
+export async function verifyCatoConnection(cfg: CatoSyncConfig): Promise<WriteOutcome> {
+  const readErr = await testCatoConnection(cfg)
+  if (readErr) return { ok: false, error: readErr }
+  return putHeartbeat(cfg, 'connect')
+}
+
+/** Write the heartbeat with the saved token and record the outcome in settings. */
+export async function writeHeartbeat(reason: HeartbeatReason): Promise<WriteOutcome> {
+  const cfg = await getCatoSyncConfig()
+  if (!cfg.enabled || !cfg.token) return { ok: false, error: 'Sync is off.' }
+  const out = await putHeartbeat(cfg, reason)
+  const now = new Date().toISOString()
+  if (out.ok) await saveCatoSyncConfig({ lastHeartbeatAt: now, verifiedAt: now, ...(reason !== 'daily' ? { lastError: null } : {}) })
+  else await saveCatoSyncConfig({ lastError: out.error })
+  return out
 }
 
 /** Write one day's file. Returns 'written', 'unchanged', or 'empty'. */
@@ -217,65 +301,84 @@ async function pushDay(cfg: CatoSyncConfig, date: string): Promise<'written' | '
   const filePath = `${cfg.path}/${date}.json`
   const body = JSON.stringify(payload, null, 2) + '\n'
 
-  const cur = await gh(cfg, `contents/${filePath}?ref=${encodeURIComponent(cfg.branch)}`)
-  let sha: string | undefined
-  if (cur.ok) {
-    const j = await cur.json()
-    sha = j.sha
-    if (typeof j.content === 'string' && fromBase64(j.content) === body) return 'unchanged'
-  } else if (cur.status !== 404) {
-    throw new Error(explain(cur.status, `GitHub returned ${cur.status}.`))
-  }
+  const { sha, content } = await repoFile(cfg, filePath)
+  if (sha && content === body) return 'unchanged'
   // Nothing trained or checked in, and no file yet: don't create an empty day.
   if (!sha && !payload.workouts.length && !payload.checkIn) return 'empty'
 
-  const put = await gh(cfg, `contents/${filePath}`, {
-    method: 'PUT',
-    body: JSON.stringify({
-      message: `FORGE: ${date} (${payload.workouts.length} workout${payload.workouts.length === 1 ? '' : 's'}${payload.checkIn ? ', check-in' : ''})`,
-      content: toBase64(body),
-      branch: cfg.branch,
-      ...(sha ? { sha } : {}),
-    }),
-  })
-  if (!put.ok) throw new Error(explain(put.status, `GitHub returned ${put.status}.`))
+  await putRepoFile(
+    cfg,
+    filePath,
+    body,
+    `FORGE: ${date} (${payload.workouts.length} workout${payload.workouts.length === 1 ? '' : 's'}${payload.checkIn ? ', check-in' : ''})`,
+    sha
+  )
   return 'written'
 }
 
-let running: Promise<void> | null = null
+/** What one sync run did, for the Settings card and the Connect message. */
+export interface SyncReport {
+  written: string[]
+  unchanged: number
+  empty: number
+  failed: string[]
+  error: string | null
+  /** True when the sync is off, so nothing was attempted. */
+  skipped: boolean
+}
+
+const EMPTY_REPORT: SyncReport = { written: [], unchanged: 0, empty: 0, failed: [], error: null, skipped: true }
+
+export function describeReport(r: SyncReport): string {
+  if (r.skipped) return 'Sync is off.'
+  const parts: string[] = []
+  if (r.written.length) parts.push(`${r.written.length} day${r.written.length === 1 ? '' : 's'} written (latest ${r.written[r.written.length - 1]})`)
+  if (r.unchanged) parts.push(`${r.unchanged} already up to date`)
+  if (r.empty) parts.push(`${r.empty} with nothing to send`)
+  if (r.failed.length) parts.push(`${r.failed.length} failed`)
+  const s = parts.join(', ') || 'nothing to do'
+  return r.error ? `${s}. ${r.error}` : `${s}.`
+}
+
+let running: Promise<SyncReport> | null = null
 
 /**
  * Sync the given dates plus anything still pending. Safe to call often: runs
  * one at a time, never throws, records the outcome in settings for the UI.
  */
-export async function runCatoSync(dates: string[] = []): Promise<void> {
+export async function runCatoSync(dates: string[] = []): Promise<SyncReport> {
   if (running) await running.catch(() => {})
-  running = (async () => {
+  running = (async (): Promise<SyncReport> => {
     let cfg = await getCatoSyncConfig()
-    if (!cfg.enabled || !cfg.token) return
+    if (!cfg.enabled || !cfg.token) return EMPTY_REPORT
     const queue = [...new Set([...cfg.pending, ...dates])].sort()
-    if (!queue.length) return
-    const failed: string[] = []
-    let lastError: string | null = null
-    let lastWritten: string | null = null
+    if (!queue.length) return { ...EMPTY_REPORT, skipped: false }
+    const report: SyncReport = { written: [], unchanged: 0, empty: 0, failed: [], error: null, skipped: false }
     for (const d of queue) {
       try {
         const res = await pushDay(cfg, d)
-        if (res === 'written') lastWritten = d
+        if (res === 'written') report.written.push(d)
+        else if (res === 'unchanged') report.unchanged++
+        else report.empty++
       } catch (e) {
-        failed.push(d)
-        lastError = e instanceof Error ? e.message : 'Sync failed.'
-        if (!navigator.onLine) { failed.push(...queue.filter((x) => x > d)); break }
+        report.failed.push(d)
+        report.error = e instanceof Error ? e.message : 'Sync failed.'
+        if (!navigator.onLine) { report.failed.push(...queue.filter((x) => x > d)); break }
       }
     }
+    const lastWritten = report.written[report.written.length - 1] ?? null
+    const now = new Date()
+    const stamp = now.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
     cfg = await saveCatoSyncConfig({
-      pending: [...new Set(failed)].slice(-60),
-      lastError,
-      ...(failed.length === 0 ? { lastSyncedAt: new Date().toISOString() } : {}),
-      ...(lastWritten ? { lastSyncedDate: lastWritten } : {}),
+      pending: [...new Set(report.failed)].slice(-60),
+      lastError: report.error,
+      lastResult: `${stamp}: ${describeReport(report)}`,
+      ...(report.failed.length === 0 ? { lastSyncedAt: now.toISOString() } : {}),
+      ...(lastWritten ? { lastSyncedDate: lastWritten, verifiedAt: now.toISOString() } : {}),
     })
+    return report
   })()
-  try { await running } finally { running = null }
+  try { return await running } finally { running = null }
 }
 
 const timers = new Map<string, ReturnType<typeof setTimeout>>()
@@ -299,17 +402,29 @@ export function requestCatoSync(date: string = getLocalDateString()): void {
   }, 4000))
 }
 
-/** On app open: retry anything pending and refresh today and yesterday. */
+const HEARTBEAT_EVERY_MS = 20 * 60 * 60 * 1000
+
+/** At most once a day, on open: refresh the heartbeat so Cato sees the app is alive and the token works. */
+async function dailyHeartbeat(): Promise<void> {
+  const cfg = await getCatoSyncConfig()
+  if (!cfg.enabled || !cfg.token || !navigator.onLine) return
+  if (cfg.lastHeartbeatAt && Date.now() - Date.parse(cfg.lastHeartbeatAt) < HEARTBEAT_EVERY_MS) return
+  await writeHeartbeat('daily')
+}
+
+/** On app open: retry anything pending, refresh today and yesterday, then the daily heartbeat. */
 export function flushCatoSyncOnOpen(): void {
   const today = new Date()
   const y = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1)
-  void runCatoSync([getLocalDateString(y), getLocalDateString(today)]).catch((e) => console.warn('Cato sync failed', e))
+  void runCatoSync([getLocalDateString(y), getLocalDateString(today)])
+    .then(() => dailyHeartbeat())
+    .catch((e) => console.warn('Cato sync failed', e))
 }
 
 /** Settings button: sync every day in the last `days` days. */
-export async function backfillCatoSync(days = 30): Promise<void> {
+export async function backfillCatoSync(days = 30): Promise<SyncReport> {
   const today = new Date()
   const list: string[] = []
   for (let i = days - 1; i >= 0; i--) list.push(getLocalDateString(new Date(today.getFullYear(), today.getMonth(), today.getDate() - i)))
-  await runCatoSync(list)
+  return runCatoSync(list)
 }
