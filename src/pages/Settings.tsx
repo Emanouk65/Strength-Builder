@@ -420,15 +420,17 @@ function CatoSyncCard({ config }: { config: CatoSyncConfig | undefined }) {
     setBusy('connect')
     setMessage(null)
     const newToken = token.trim()
-    const next = { ...cfg, repo: repo.trim() || cfg.repo, token: newToken || cfg.token }
+    const now = new Date().toISOString()
+    // The probe write carries these fields into _status.json, so clear the previous token's
+    // error and stamp the new token's save time before the write, not after.
+    const next = { ...cfg, repo: repo.trim() || cfg.repo, token: newToken || cfg.token, lastError: null, ...(newToken ? { tokenSavedAt: now } : {}) }
     const v = await verifyCatoConnection(next)
     if (!v.ok) {
       setMessage({ ok: false, text: `${v.error} ${newToken ? 'The new token was not saved.' : ''}`.trim() })
       setBusy(null)
       return
     }
-    const now = new Date().toISOString()
-    await saveCatoSyncConfig({ ...next, enabled: true, lastError: null, verifiedAt: now, lastHeartbeatAt: now, ...(newToken ? { tokenSavedAt: now } : {}) })
+    await saveCatoSyncConfig({ ...next, enabled: true, verifiedAt: now, lastHeartbeatAt: now })
     setToken('')
     setMessage({ ok: true, text: `Token works: wrote ${v.file} to ${next.repo}. Syncing the last 30 days…` })
     setBusy('backfill')
