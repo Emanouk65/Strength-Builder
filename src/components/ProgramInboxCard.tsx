@@ -27,7 +27,7 @@ export function ProgramInboxCard() {
       const s = await fetchInboxProgram()
       if (!alive) return
       setState(s)
-      if (s.program && (!s.installed || s.updateAvailable)) {
+      if (s.program) {
         try {
           const user = await getCurrentUser()
           if (!user) return
@@ -45,7 +45,15 @@ export function ProgramInboxCard() {
     return () => { alive = false }
   }, [])
 
-  if (!state || !state.configured) return null
+  if (!state) return null
+  if (!state.configured) {
+    return (
+      <div className="rounded-2xl bg-secondary/50 border border-border/40 p-4">
+        <p className="text-sm">Cato sync is off on this device, so blocks from Cato can't load here.</p>
+        <p className="text-xs text-muted-foreground mt-1">Turn it on in Settings, under Cato sync.</p>
+      </div>
+    )
+  }
   if (state.error) {
     return (
       <div className="rounded-2xl bg-destructive/10 border border-destructive/30 p-4">
@@ -53,9 +61,10 @@ export function ProgramInboxCard() {
       </div>
     )
   }
-  if (!state.program || (state.installed && !state.updateAvailable)) return null
+  if (!state.program) return null
 
   const p = state.program
+
   const isUpdate = state.installed && state.updateAvailable
 
   const handleUpdate = async () => {
@@ -82,6 +91,25 @@ export function ProgramInboxCard() {
       setError(e instanceof Error ? e.message : 'Failed to install the program.')
       setBusy(false)
     }
+  }
+
+  // Installed and current: say so, and keep a way to lay the block out again.
+  if (state.installed && !state.updateAvailable) {
+    return (
+      <div className="rounded-2xl bg-secondary/50 border border-border/40 p-4">
+        <p className="text-[10px] uppercase tracking-widest text-muted-foreground">From {p.source} · revision {p.revision} installed</p>
+        <p className="text-sm font-semibold mt-1">{preview?.plan.name ?? p.id}</p>
+        {error && <p className="text-sm text-destructive mt-2">{error}</p>}
+        <div className="mt-3">
+          <Button size="sm" variant="outline" onClick={handleInstall} disabled={busy || !preview}>
+            {busy ? 'Scheduling…' : 'Reinstall and reschedule'}
+          </Button>
+        </div>
+        <p className="text-[11px] text-muted-foreground mt-2">
+          Lays the block out again from Cato's file. Completed history is kept.
+        </p>
+      </div>
+    )
   }
 
   if (isUpdate) {

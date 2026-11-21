@@ -104,7 +104,15 @@ export async function fetchInboxProgram(): Promise<InboxState> {
     program.prestartWeeks = typeof j.prestartWeeks === 'number' && j.prestartWeeks > 0
       ? Math.min(Math.round(j.prestartWeeks), program.weeksCount - 1)
       : 0
-    const installed = cfg.installedProgramId === program.id
+    // The saved id alone is not proof: the block must still be the active program on this
+    // device. Otherwise (archived, wiped, never written) offer the install again.
+    let installed = cfg.installedProgramId === program.id
+    if (installed) {
+      const user = await getCurrentUser()
+      const programs = user ? await db.programs.where('userId').equals(user.id).toArray() : []
+      const planName = (program.plan as { name?: unknown } | null)?.name
+      installed = programs.some(p => p.status === 'active' && (p.inboxId === program.id || (typeof planName === 'string' && p.name === planName)))
+    }
     const installedRevision = installed ? (cfg.installedProgramRevision ?? 1) : null
     const updateAvailable = installed && program.revision > (installedRevision ?? 1)
     return { configured: true, program, installed, updateAvailable, installedRevision, error: null }
