@@ -731,6 +731,8 @@ export interface Program {
   /** Set when the program came from the LifeOS inbox: the block id and the revision applied. */
   inboxId?: string | null
   inboxRevision?: number | null
+  /** Leading pre-start weeks, dated on consecutive days before the block proper. 0 or absent: none. */
+  prestartWeeks?: number | null
 }
 
 // ----------------------------------------------------------------------------
