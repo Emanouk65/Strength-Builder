@@ -479,8 +479,23 @@ export async function generateProgramPlan(
 // Materialization — expand the plan into concrete planned workouts
 // ----------------------------------------------------------------------------
 
-/** Chronological training dates: weeks × daysPerWeek, on the user's preferred weekdays. */
-function scheduleDates(startDate: Date, weeks: number, daysPerWeek: number, preferredDays: number[]): Date[][] {
+/**
+ * Chronological training dates: weeks × daysPerWeek, on the user's preferred weekdays.
+ *
+ * Pre-start weeks are the exception. A block can open with `prestartWeeks` short weeks of
+ * light sessions done on consecutive days right before the block proper (Cato's Friday to
+ * Sunday pre-start weekend). Those weeks ignore the preferred weekdays: each one covers the
+ * seven days from `startDate + 7 × week`, and its sessions land on the last days of that
+ * window, one a day, so they run straight into the first real week. The real weeks then
+ * start on the first preferred day after the pre-start, exactly as they would without it.
+ */
+function scheduleDates(
+  startDate: Date,
+  weeks: number,
+  daysPerWeek: number,
+  preferredDays: number[],
+  prestart: { weeks: number; sessionsPerWeek: number[] } = { weeks: 0, sessionsPerWeek: [] }
+): Date[][] {
   let chosen = [...new Set(preferredDays)].filter(d => d >= 0 && d <= 6).sort((a, b) => a - b)
   const fallbackOrder = [1, 3, 5, 2, 4, 6, 0]
   for (const d of fallbackOrder) {
@@ -493,7 +508,21 @@ function scheduleDates(startDate: Date, weeks: number, daysPerWeek: number, pref
   const result: Date[][] = []
   const cursor = new Date(startDate)
   cursor.setHours(9, 0, 0, 0)
-  for (let w = 0; w < weeks; w++) {
+
+  const prestartWeeks = Math.min(Math.max(Math.round(prestart.weeks || 0), 0), Math.max(weeks - 1, 0))
+  for (let w = 0; w < prestartWeeks; w++) {
+    const sessions = Math.min(Math.max(prestart.sessionsPerWeek[w] ?? daysPerWeek, 0), 7)
+    const week: Date[] = []
+    for (let i = 7 - sessions; i < 7; i++) {
+      const day = new Date(cursor)
+      day.setDate(day.getDate() + i)
+      week.push(day)
+    }
+    result.push(week)
+    cursor.setDate(cursor.getDate() + 7)
+  }
+
+  for (let w = prestartWeeks; w < weeks; w++) {
     const week: Date[] = []
     while (week.length < daysPerWeek) {
       if (chosenSet.has(cursor.getDay())) week.push(new Date(cursor))
@@ -502,6 +531,13 @@ function scheduleDates(startDate: Date, weeks: number, daysPerWeek: number, pref
     result.push(week)
   }
   return result
+}
+
+/** Session slots per pre-start week, so a short pre-start week only claims the days it has. */
+function prestartOf(plan: GeneratedProgram, prestartWeeks: number | null | undefined) {
+  const weeks = prestartWeeks ?? 0
+  const sessionsPerWeek = Array.from({ length: weeks }, (_, w) => (plan.weekDays?.[w] ?? plan.days).length)
+  return { weeks, sessionsPerWeek }
 }
 
 /** Delete a planned workout and everything hanging off it (blocks, instances, sets). Call inside a transaction. */
@@ -669,6 +705,8 @@ async function linkSupersets(groups: string[][]): Promise<void> {
 export interface ProgramOrigin {
   inboxId?: string | null
   inboxRevision?: number | null
+  /** Leading pre-start weeks, scheduled on consecutive days instead of preferred weekdays. */
+  prestartWeeks?: number | null
 }
 
 /**
@@ -692,7 +730,8 @@ export async function materializeProgram(
 
   const { plan } = gen
   const daysPerWeek = plan.days.length
-  const dates = scheduleDates(startDate, plan.weeksCount, daysPerWeek, ctx.preferredDays)
+  const prestartWeeks = origin.prestartWeeks ?? 0
+  const dates = scheduleDates(startDate, plan.weeksCount, daysPerWeek, ctx.preferredDays, prestartOf(plan, prestartWeeks))
   const progressionByWeek = new Map(plan.weeklyProgression.map(w => [w.week, w]))
 
   await db.transaction(
@@ -726,6 +765,7 @@ export async function materializeProgram(
         warnings: gen.warnings,
         inboxId: origin.inboxId ?? null,
         inboxRevision: origin.inboxRevision ?? null,
+        prestartWeeks,
       }
       await db.programs.add(program)
 
@@ -765,7 +805,8 @@ export async function rematerializeProgram(
 
   const { plan } = gen
   const daysPerWeek = plan.days.length
-  const dates = scheduleDates(new Date(program.startDate), plan.weeksCount, daysPerWeek, ctx.preferredDays)
+  const prestartWeeks = origin.prestartWeeks ?? program.prestartWeeks ?? 0
+  const dates = scheduleDates(new Date(program.startDate), plan.weeksCount, daysPerWeek, ctx.preferredDays, prestartOf(plan, prestartWeeks))
   const progressionByWeek = new Map(plan.weeklyProgression.map(w => [w.week, w]))
   const from = new Date(fromDate)
   from.setHours(0, 0, 0, 0)
@@ -803,6 +844,7 @@ export async function rematerializeProgram(
         summary: plan.summary,
         inboxId: origin.inboxId ?? program.inboxId ?? null,
         inboxRevision: origin.inboxRevision ?? program.inboxRevision ?? null,
+        prestartWeeks,
       })
     }
   )

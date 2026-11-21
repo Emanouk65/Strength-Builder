@@ -19,8 +19,14 @@
  *     "startDate": "2026-10-20",             // local date, first training day on/after it
  *     "revision": 3,                          // bumped by Cato's weekly adaptation; same id = same block
  *     "changelog": ["Wk 2 bench 165 -> 170 (RPE 6.3)"],   // what the latest revision changed, for the card
+ *     "prestartWeeks": 1,                     // optional: leading weeks of light sessions on consecutive days
  *     "plan": { name, summary, days[], weekDays[][], weeklyProgression[] }
  *   }
+ *
+ * Pre-start weeks: the first `prestartWeeks` weeks are not dated on the preferred weekdays.
+ * Each covers the seven days from startDate + 7 × week, and its sessions fall on the last
+ * days of that window, one a day. With startDate Monday 16 Nov and three pre-start sessions,
+ * they land Friday 20, Saturday 21 and Sunday 22, and week 2 starts Monday 23.
  *
  * A higher revision of an installed id is an UPDATE: the remaining planned workouts are
  * rebuilt from the new plan (with its targetWeights) and everything already done is kept.
@@ -53,6 +59,8 @@ export interface InboxProgram {
   revision: number
   /** What the latest revision changed, one line each; shown on the update card. */
   changelog: string[]
+  /** Leading pre-start weeks (0 when absent), dated on consecutive days before the block proper. */
+  prestartWeeks: number
   plan: unknown
 }
 
@@ -90,8 +98,12 @@ export async function fetchInboxProgram(): Promise<InboxState> {
       startDate: typeof j.startDate === 'string' ? j.startDate : '',
       revision: typeof j.revision === 'number' && j.revision >= 1 ? Math.round(j.revision) : 1,
       changelog: Array.isArray(j.changelog) ? j.changelog.filter((x): x is string => typeof x === 'string').slice(0, 12) : [],
+      prestartWeeks: 0,
       plan: j.plan,
     }
+    program.prestartWeeks = typeof j.prestartWeeks === 'number' && j.prestartWeeks > 0
+      ? Math.min(Math.round(j.prestartWeeks), program.weeksCount - 1)
+      : 0
     const installed = cfg.installedProgramId === program.id
     const installedRevision = installed ? (cfg.installedProgramRevision ?? 1) : null
     const updateAvailable = installed && program.revision > (installedRevision ?? 1)
@@ -118,7 +130,7 @@ export async function installInboxProgram(program: InboxProgram, startDateOverri
   const gen = await previewInboxProgram(user, program)
   const startStr = startDateOverride || program.startDate
   const start = startStr ? new Date(startStr + 'T09:00:00') : new Date()
-  const programId = await materializeProgram(user.id, gen, program.goalText, start, { inboxId: program.id, inboxRevision: program.revision })
+  const programId = await materializeProgram(user.id, gen, program.goalText, start, { inboxId: program.id, inboxRevision: program.revision, prestartWeeks: program.prestartWeeks })
   await saveCatoSyncConfig({ installedProgramId: program.id, installedProgramRevision: program.revision })
   return { programId, warnings: gen.warnings }
 }
@@ -139,7 +151,7 @@ export async function updateInstalledProgram(program: InboxProgram): Promise<{ p
   if (!target) throw new Error('The installed block was not found on this device. Install it instead.')
   const gen = await previewInboxProgram(user, program)
   const from = new Date(getLocalDateString() + 'T00:00:00')
-  const { rebuilt, kept } = await rematerializeProgram(user.id, target.id, gen, from, { inboxId: program.id, inboxRevision: program.revision })
+  const { rebuilt, kept } = await rematerializeProgram(user.id, target.id, gen, from, { inboxId: program.id, inboxRevision: program.revision, prestartWeeks: program.prestartWeeks })
   await saveCatoSyncConfig({ installedProgramId: program.id, installedProgramRevision: program.revision })
   return { programId: target.id, rebuilt, kept, warnings: gen.warnings }
 }
