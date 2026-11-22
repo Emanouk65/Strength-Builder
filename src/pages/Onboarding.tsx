@@ -230,10 +230,10 @@ export function Onboarding() {
   }
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen">
       {/* Progress Bar */}
       {step > 0 && (
-        <div className="fixed top-0 left-0 right-0 z-50 bg-background/95 backdrop-blur-sm border-b border-border/50">
+        <div className="fixed top-0 left-0 right-0 z-50 glass-bar border-x-0 border-t-0">
           <div className="safe-area-inset">
             <div className="px-4 py-3">
               <div className="flex items-center justify-between mb-2">

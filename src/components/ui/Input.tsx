@@ -22,9 +22,9 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
           type={type}
           id={inputId}
           className={cn(
-            'flex h-11 w-full rounded-xl border border-border/50 bg-input px-3 py-2 text-sm text-foreground',
+            'flex h-11 w-full rounded-2xl border border-border bg-input px-3.5 py-2 text-sm text-foreground',
             'ring-offset-background placeholder:text-muted-foreground/50',
-            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-0 focus-visible:border-primary/50',
+            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/25 focus-visible:ring-offset-0 focus-visible:border-white/30',
             'disabled:cursor-not-allowed disabled:opacity-50',
             'transition-colors duration-150',
             error && 'border-destructive focus-visible:ring-destructive',

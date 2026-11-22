@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
@@ -21,7 +20,6 @@ interface RecordRow {
 }
 
 export function LiftRecords() {
-  const navigate = useNavigate()
   const user = useLiveQuery(() => getCurrentUser())
 
   // Live rollup: updates the moment a set is checked off mid-workout.
@@ -114,7 +112,6 @@ export function LiftRecords() {
           className="w-full flex items-center justify-between gap-3 px-4 py-3.5 text-left hover:bg-secondary/30 active:bg-secondary/50 transition-colors"
         >
           <div className="flex items-center gap-3 min-w-0 flex-1">
-            {row.icon && <span className="text-2xl shrink-0">{row.icon}</span>}
             <div className="min-w-0">
               <p className="font-semibold text-foreground truncate">{row.name}</p>
               {pr ? (
@@ -125,7 +122,7 @@ export function LiftRecords() {
                   )}
                 </p>
               ) : (
-                <p className="text-xs text-muted-foreground mt-0.5">No record yet — tap to add</p>
+                <p className="text-xs text-muted-foreground mt-0.5">No record</p>
               )}
             </div>
           </div>
@@ -206,21 +203,9 @@ export function LiftRecords() {
   }
 
   return (
-    <div className="min-h-screen bg-background pb-24">
-      <header className="px-5 pt-12 pb-5 flex items-start gap-3">
-        <button
-          onClick={() => navigate(-1)}
-          className="h-9 w-9 flex items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors -ml-1"
-          aria-label="Back"
-        >
-          <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-            <path d="M15 18l-6-6 6-6" />
-          </svg>
-        </button>
-        <div>
-          <p className="text-[10px] uppercase tracking-widest text-muted-foreground">Personal records</p>
-          <h1 className="text-2xl font-bold tracking-tight mt-1">Lifts</h1>
-        </div>
+    <div className="min-h-screen pb-24">
+      <header className="px-5 pt-14 pb-5">
+        <h1 className="text-[34px] font-bold leading-none tracking-tight text-foreground">Records</h1>
       </header>
 
       <div className="px-5 space-y-2.5">

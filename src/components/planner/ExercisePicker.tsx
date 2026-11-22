@@ -2,7 +2,7 @@ import { useMemo, useState, useEffect, useRef } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { EXERCISE_LIBRARY, searchExercises } from '@/db/exercises'
 import { getCustomExercises } from '@/db'
-import { Sheet, Badge } from '@/components/ui'
+import { Sheet } from '@/components/ui'
 import type { Exercise, ExerciseCategory } from '@/lib/types'
 import { cn } from '@/lib/utils'
 
@@ -27,6 +27,9 @@ const CATEGORY_LABELS: Array<{ key: 'all' | ExerciseCategory; label: string }> =
 export function ExercisePicker({ open, onClose, onPick, alreadyAddedIds = [] }: ExercisePickerProps) {
   const [query, setQuery] = useState('')
   const [category, setCategory] = useState<'all' | ExerciseCategory>('all')
+  // Picks made since the sheet opened. The sheet stays open so several
+  // exercises can be added in one pass instead of reopening it each time.
+  const [picked, setPicked] = useState<string[]>([])
   const scrollContainerRef = useRef<HTMLDivElement>(null)
 
   const customExercises = useLiveQuery(() => getCustomExercises(), []) ?? []
@@ -36,6 +39,7 @@ export function ExercisePicker({ open, onClose, onPick, alreadyAddedIds = [] }: 
     if (open) {
       setQuery('')
       setCategory('all')
+      setPicked([])
       // Scroll the results back to top on each open.
       requestAnimationFrame(() => {
         scrollContainerRef.current?.scrollTo({ top: 0 })
@@ -76,26 +80,25 @@ export function ExercisePicker({ open, onClose, onPick, alreadyAddedIds = [] }: 
       noPadding
     >
       <div className="flex flex-col h-full min-h-0">
-        {/* Pinned header — search bar + category chips never scroll away */}
-        <div className="px-5 pt-3 pb-3 border-b border-border/30 bg-card z-10 shrink-0">
-          <div className="flex items-center gap-3 mb-3">
-            <h2 className="text-base font-semibold text-foreground flex-1">Add exercise</h2>
+        {/* Pinned header — search and filters never scroll away */}
+        <div className="px-4 pt-2 pb-3 shrink-0">
+          <div className="flex items-center gap-2 mb-3">
+            <h2 className="text-lg font-semibold tracking-tight text-foreground flex-1 pl-1">Add exercises</h2>
             <button
               onClick={onClose}
-              className="h-8 w-8 flex items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors"
-              aria-label="Close"
+              className={cn(
+                'h-9 px-4 rounded-full text-sm font-semibold transition-colors',
+                picked.length > 0 ? 'bg-white text-black' : 'glass-soft text-foreground'
+              )}
             >
-              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-                <path d="M18 6L6 18M6 6l12 12" />
-              </svg>
+              {picked.length > 0 ? `Done · ${picked.length}` : 'Done'}
             </button>
           </div>
 
-          {/* Search input — plain text input with explicit search icon */}
           <div className="relative">
             <svg
               viewBox="0 0 24 24"
-              className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none"
+              className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none"
               fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"
             >
               <circle cx="11" cy="11" r="8" />
@@ -107,15 +110,15 @@ export function ExercisePicker({ open, onClose, onPick, alreadyAddedIds = [] }: 
               autoComplete="off"
               autoCorrect="off"
               spellCheck={false}
-              placeholder="Search exercises…"
+              placeholder="Search"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              className="h-11 w-full rounded-xl border border-border/50 bg-input pl-10 pr-9 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-foreground/30 focus:border-foreground/40"
+              className="h-11 w-full rounded-full glass-soft pl-10 pr-10 text-[15px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-white/20"
             />
             {query && (
               <button
                 onClick={() => setQuery('')}
-                className="absolute right-2 top-1/2 -translate-y-1/2 h-7 w-7 flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground"
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 h-8 w-8 flex items-center justify-center rounded-full text-muted-foreground hover:text-foreground"
                 aria-label="Clear search"
               >
                 <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
@@ -125,17 +128,14 @@ export function ExercisePicker({ open, onClose, onPick, alreadyAddedIds = [] }: 
             )}
           </div>
 
-          {/* Category chips */}
-          <div className="flex gap-2 overflow-x-auto scrollbar-hide pt-3 -mx-1 px-1">
+          <div className="flex gap-1.5 overflow-x-auto scrollbar-hide pt-3 -mx-4 px-4">
             {CATEGORY_LABELS.map(({ key, label }) => (
               <button
                 key={key}
                 onClick={() => setCategory(key)}
                 className={cn(
-                  'shrink-0 h-8 px-3 rounded-full text-xs font-medium transition-colors',
-                  category === key
-                    ? 'bg-primary text-primary-foreground'
-                    : 'bg-secondary/60 text-muted-foreground hover:text-foreground'
+                  'shrink-0 h-8 px-3.5 rounded-full text-xs font-medium transition-colors',
+                  category === key ? 'bg-white text-black' : 'glass-soft text-foreground/75 hover:text-foreground'
                 )}
               >
                 {label}
@@ -144,46 +144,46 @@ export function ExercisePicker({ open, onClose, onPick, alreadyAddedIds = [] }: 
           </div>
         </div>
 
-        {/* Scrollable results — flex-1 + min-h-0 lets the Sheet's keyboard-aware
-            max-height naturally shrink this area, so results never sit behind
-            the on-screen keyboard. */}
         <div
           ref={scrollContainerRef}
-          className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 py-3"
+          className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-2 pb-4 border-t border-white/[0.06]"
         >
           {results.length === 0 ? (
-            <div className="text-sm text-muted-foreground text-center py-12">
-              No exercises match {query ? `"${query}"` : 'this filter'}
-            </div>
+            <div className="text-sm text-muted-foreground text-center py-12">No matches</div>
           ) : (
-            <ul className="flex flex-col gap-1.5">
+            <ul className="flex flex-col py-1">
               {results.map((ex) => {
-                const added = addedSet.has(ex.id)
+                const pickedCount = picked.filter(id => id === ex.id).length
+                const inWorkout = addedSet.has(ex.id) || pickedCount > 0
                 return (
                   <li key={ex.id}>
                     <button
                       onClick={() => {
                         onPick(ex)
-                        onClose()
+                        setPicked(p => [...p, ex.id])
                       }}
-                      className={cn(
-                        'w-full flex items-center justify-between gap-3 px-3 py-3 rounded-xl text-left',
-                        'border border-transparent hover:border-border bg-secondary/40 hover:bg-secondary/70',
-                        'transition-colors active:scale-[0.985]',
-                        added && 'opacity-50'
-                      )}
+                      className="w-full flex items-center gap-3 px-3 py-3 rounded-2xl text-left hover:bg-white/[0.05] active:bg-white/[0.08] transition-colors"
                     >
                       <div className="min-w-0 flex-1">
-                        <div className="text-sm font-medium text-foreground truncate">{ex.name}</div>
-                        <div className="text-xs text-muted-foreground truncate">
+                        <div className="text-[15px] font-medium text-foreground truncate">{ex.name}</div>
+                        <div className="text-xs text-muted-foreground truncate capitalize">
                           {ex.primaryMuscles.slice(0, 2).map(m => m.replace(/_/g, ' ')).join(' · ')}
                           {ex.equipment[0] && ex.equipment[0] !== 'none' && ` · ${ex.equipment[0].replace(/_/g, ' ')}`}
                         </div>
                       </div>
-                      <div className="flex items-center gap-2 shrink-0">
-                        {ex.isCompound && <Badge variant="secondary" className="text-[10px]">Compound</Badge>}
-                        {added && <span className="text-[10px] text-muted-foreground">Added</span>}
-                      </div>
+                      <span
+                        className={cn(
+                          'h-7 w-7 shrink-0 flex items-center justify-center rounded-full transition-colors',
+                          inWorkout ? 'bg-white text-black' : 'glass-soft text-foreground/70'
+                        )}
+                        aria-hidden
+                      >
+                        {inWorkout ? (
+                          <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round"><path d="M5 13l4 4L19 7" /></svg>
+                        ) : (
+                          <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth={2.6} strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
+                        )}
+                      </span>
                     </button>
                   </li>
                 )

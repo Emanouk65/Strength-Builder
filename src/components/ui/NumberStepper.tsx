@@ -73,8 +73,7 @@ export function NumberStepper({
     return (
       <div
         className={cn(
-          'inline-flex items-stretch overflow-hidden rounded-2xl bg-card border border-border/60',
-          'shadow-sm',
+          'inline-flex items-stretch overflow-hidden rounded-full glass-soft',
           className
         )}
       >
@@ -83,7 +82,7 @@ export function NumberStepper({
           onClick={dec}
           className={cn(
             s.btn,
-            'flex items-center justify-center text-foreground/80 hover:text-foreground hover:bg-secondary/60 active:bg-secondary/80 active:scale-95 transition-all touch-target border-r border-border/60'
+            'flex items-center justify-center text-foreground/80 hover:text-foreground hover:bg-secondary/60 active:bg-secondary/80 active:scale-95 transition-all touch-target'
           )}
           aria-label={`Decrease ${ariaLabel ?? 'value'}`}
         >
@@ -117,7 +116,7 @@ export function NumberStepper({
           onClick={inc}
           className={cn(
             s.btn,
-            'flex items-center justify-center text-foreground/80 hover:text-foreground hover:bg-secondary/60 active:bg-secondary/80 active:scale-95 transition-all touch-target border-l border-border/60'
+            'flex items-center justify-center text-foreground/80 hover:text-foreground hover:bg-secondary/60 active:bg-secondary/80 active:scale-95 transition-all touch-target'
           )}
           aria-label={`Increase ${ariaLabel ?? 'value'}`}
         >
@@ -134,7 +133,7 @@ export function NumberStepper({
         onClick={dec}
         className={cn(
           s.btn,
-          'flex items-center justify-center rounded-xl bg-secondary/70 text-foreground active:scale-95 transition-transform touch-target hover:bg-secondary'
+          'flex items-center justify-center rounded-full glass-soft text-foreground active:scale-95 transition-transform touch-target hover:bg-white/10'
         )}
         aria-label={`Decrease ${ariaLabel ?? 'value'}`}
       >
@@ -159,8 +158,8 @@ export function NumberStepper({
         onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
         className={cn(
           s.input,
-          'text-center rounded-xl bg-input border border-border/40 tabular-nums text-foreground font-semibold',
-          'focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary/60'
+          'text-center rounded-xl bg-input border border-border tabular-nums text-foreground font-semibold',
+          'focus:outline-none focus:ring-2 focus:ring-white/25 focus:border-white/30'
         )}
       />
       <button
@@ -168,7 +167,7 @@ export function NumberStepper({
         onClick={inc}
         className={cn(
           s.btn,
-          'flex items-center justify-center rounded-xl bg-secondary/70 text-foreground active:scale-95 transition-transform touch-target hover:bg-secondary'
+          'flex items-center justify-center rounded-full glass-soft text-foreground active:scale-95 transition-transform touch-target hover:bg-white/10'
         )}
         aria-label={`Increase ${ariaLabel ?? 'value'}`}
       >

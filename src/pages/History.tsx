@@ -79,10 +79,9 @@ export function History() {
   if (!user) return null
 
   return (
-    <div className="min-h-screen bg-background pb-24">
-      <header className="px-5 pt-12 pb-5">
-        <p className="text-[10px] uppercase tracking-widest text-muted-foreground">Looking back</p>
-        <h1 className="text-2xl font-bold tracking-tight mt-1">History</h1>
+    <div className="min-h-screen pb-24">
+      <header className="px-5 pt-14 pb-5">
+        <h1 className="text-[34px] font-bold leading-none tracking-tight text-foreground">History</h1>
       </header>
 
       {/* Calendar */}
@@ -163,9 +162,7 @@ export function History() {
                         </p>
                       )}
                     </div>
-                  ) : (
-                    <p className="text-xs text-muted-foreground/70 italic">No journal entry</p>
-                  )}
+                  ) : null}
                 </motion.button>
               )
             })}
@@ -173,9 +170,6 @@ export function History() {
         ) : (
           <div className="rounded-2xl bg-card border border-border/40 py-10 text-center">
             <p className="text-muted-foreground">No completed workouts yet</p>
-            <p className="text-xs text-muted-foreground/70 mt-1">
-              Your training history will appear here
-            </p>
           </div>
         )}
       </div>
