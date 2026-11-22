@@ -377,3 +377,49 @@ export const tapMotion = {
   whileTap: { scale: 0.97 },
   transition: { duration: 0.1 },
 }
+
+/**
+ * One-line summary of a logged session's sets, for the "Last" line on an
+ * exercise card. Collapses repeats so it stays short:
+ *   3 × 8 @ 165 lbs          (every set identical)
+ *   165 lbs × 8, 8, 7        (same weight, reps vary)
+ *   135×8 · 155×6 · 165×5 lbs (weights vary)
+ *   5, 5, 4 reps             (bodyweight / no weight logged)
+ *   20 min · 2.1 mi          (cardio)
+ */
+export function formatSessionSummary(
+  sets: { weight: number | null; reps: number | null; duration: number | null; distance: number | null }[],
+  weightUnit: 'lbs' | 'kg',
+  isCardio = false
+): string {
+  if (sets.length === 0) return ''
+
+  if (isCardio) {
+    return sets
+      .map(s => {
+        const parts: string[] = []
+        const min = secondsToMinutes(s.duration)
+        if (min != null) parts.push(`${min} min`)
+        if (s.distance != null) parts.push(`${s.distance} ${distanceUnitFor(weightUnit)}`)
+        return parts.join(' · ') || '—'
+      })
+      .join(', ')
+  }
+
+  const reps = sets.map(s => (s.reps != null ? `${s.reps}` : '—'))
+  const weights = sets.map(s => (s.weight != null && s.weight > 0 ? s.weight : null))
+  const allSameWeight = weights.every(w => w === weights[0])
+
+  if (weights.every(w => w == null)) {
+    return `${reps.join(', ')} reps`
+  }
+  if (allSameWeight) {
+    if (reps.every(r => r === reps[0])) {
+      return `${sets.length} × ${reps[0]} @ ${weights[0]} ${weightUnit}`
+    }
+    return `${weights[0]} ${weightUnit} × ${reps.join(', ')}`
+  }
+  return sets
+    .map((_, i) => (weights[i] != null ? `${weights[i]}×${reps[i]}` : `BW×${reps[i]}`))
+    .join(' · ') + ` ${weightUnit}`
+}

@@ -10,7 +10,7 @@ import {
   checkTimeBasedAchievements,
   checkIronWillAchievement,
   getBestLift,
-  getLastWorkoutForExercise,
+  getLastExerciseSession,
   getReadiness,
   getAppSettings,
   getExerciseHistory,
@@ -35,6 +35,7 @@ import {
   distanceUnitFor,
   secondsToMinutes,
   minutesToSeconds,
+  formatSessionSummary,
 } from '@/lib/utils'
 import { BLOCK_CONFIG, ACHIEVEMENTS } from '@/lib/constants'
 import type { BlockType, SetInstance, AchievementId, Exercise } from '@/lib/types'
@@ -387,6 +388,8 @@ export function Workout() {
                         key={g.instance.id}
                         exerciseInstance={g.instance}
                         userId={workoutData.userId}
+                        workoutId={workoutData.id}
+                        workoutCompletedAt={workoutData.completedAt}
                         isExpanded={expandedIds.has(g.instance.id)}
                         onToggleExpand={() => toggleExpand(g.instance.id)}
                         onSetCompleted={handleSetCompleted}
@@ -409,6 +412,8 @@ export function Workout() {
                           key={m.id}
                           exerciseInstance={m}
                           userId={workoutData.userId}
+                          workoutId={workoutData.id}
+                          workoutCompletedAt={workoutData.completedAt}
                           isExpanded={expandedIds.has(m.id)}
                           onToggleExpand={() => toggleExpand(m.id)}
                           onSetCompleted={handleSetCompleted}
@@ -678,6 +683,8 @@ function ReadinessBanner({
 function ExerciseBlock({
   exerciseInstance,
   userId,
+  workoutId,
+  workoutCompletedAt,
   isExpanded,
   onToggleExpand,
   onSetCompleted,
@@ -691,6 +698,10 @@ function ExerciseBlock({
     notes: string
   }
   userId?: string
+  /** The session being logged — left out of "last time" so it never shows itself. */
+  workoutId?: string
+  /** Set when reopening a finished session: "last time" then means before it. */
+  workoutCompletedAt?: Date | null
   /** Controlled by parent so it can auto-advance between exercises. */
   isExpanded: boolean
   onToggleExpand: () => void
@@ -725,10 +736,22 @@ function ExerciseBlock({
     const record = await getBestLift(userId, exerciseInstance.exerciseId)
     return record?.weight ?? null
   }, [userId, exerciseInstance.exerciseId, isCardio]) ?? null
+  // Most recent earlier session of this exercise (every working set), shown
+  // beside the PR. Excludes the session in progress.
+  const completedAtMs = workoutCompletedAt ? new Date(workoutCompletedAt).getTime() : null
   const lastSession = useLiveQuery(async () => {
-    if (isCardio || !userId || !exerciseInstance.exerciseId) return null
-    return getLastWorkoutForExercise(userId, exerciseInstance.exerciseId)
-  }, [userId, exerciseInstance.exerciseId, isCardio]) ?? null
+    if (!userId || !exerciseInstance.exerciseId) return null
+    return getLastExerciseSession(userId, exerciseInstance.exerciseId, {
+      excludeWorkoutId: workoutId,
+      before: completedAtMs != null ? new Date(completedAtMs) : null,
+    })
+  }, [userId, exerciseInstance.exerciseId, workoutId, completedAtMs]) ?? null
+  const lastSessionDate = lastSession
+    ? new Date(lastSession.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+    : null
+  const lastSessionSummary = lastSession
+    ? formatSessionSummary(lastSession.sets, weightUnit, isCardio)
+    : null
 
   const completedSets = exerciseInstance.sets.filter(s => s.completed).length
   const totalSets = exerciseInstance.sets.length
@@ -772,6 +795,11 @@ function ExerciseBlock({
               {muscles && ` · ${muscles}`}
               {prWeight && !isCardio && ` · PR ${prWeight} ${weightUnit}`}
             </p>
+            {lastSessionSummary && (
+              <p className="text-xs text-muted-foreground truncate mt-0.5">
+                Last {lastSessionDate}: <span className="font-medium text-foreground/80 tabular-nums">{lastSessionSummary}</span>
+              </p>
+            )}
           </div>
         </div>
         <div className="flex items-center gap-2 shrink-0">
@@ -823,18 +851,39 @@ function ExerciseBlock({
             className="overflow-hidden"
           >
             <div className="px-4 pb-4 pt-1 border-t border-border/30">
-              {/* Last-session recall — the weights below are pre-filled from this
-                  with progressive overload applied; shown so you can adjust. */}
-              {lastSession && !isCardio && (
-                <div className="mt-3 flex items-center gap-1.5 rounded-lg bg-secondary/40 px-3 py-2 text-xs text-muted-foreground">
-                  <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 shrink-0" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M3 3v5h5" />
-                    <path d="M3.05 13A9 9 0 1 0 6 5.3L3 8" />
-                  </svg>
-                  <span>
-                    Last time: <span className="font-semibold text-foreground/80">{lastSession.weight} {weightUnit} × {lastSession.reps}</span>
-                    {lastSession.rpe != null && <span> @{lastSession.rpe}</span>}
-                  </span>
+              {/* Last session — every working set from the most recent earlier
+                  session of this exercise, so you can match or beat it set by set.
+                  Today's targets below are pre-filled from it with progression. */}
+              {lastSession && lastSession.sets.length > 0 && (
+                <div className="mt-3 rounded-lg bg-secondary/40 px-3 py-2 text-xs text-muted-foreground">
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 shrink-0" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M3 3v5h5" />
+                      <path d="M3.05 13A9 9 0 1 0 6 5.3L3 8" />
+                    </svg>
+                    <span>
+                      Last time · {new Date(lastSession.date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                    </span>
+                  </div>
+                  <div className="flex flex-col gap-0.5">
+                    {lastSession.sets.map((s, i) => (
+                      <div key={i} className="flex items-center gap-2 tabular-nums">
+                        <span className="w-4 font-mono text-muted-foreground">{i + 1}</span>
+                        {isCardio ? (
+                          <span className="font-semibold text-foreground/80">
+                            {secondsToMinutes(s.duration) ?? '—'} min
+                            {s.distance != null && <span className="font-normal text-muted-foreground"> · {s.distance} {distanceUnit}</span>}
+                          </span>
+                        ) : (
+                          <span className="font-semibold text-foreground/80">
+                            {s.weight != null && s.weight > 0 ? `${s.weight} ${weightUnit}` : 'BW'}
+                            <span className="font-normal text-muted-foreground"> × {s.reps ?? '—'}</span>
+                          </span>
+                        )}
+                        {s.rpe != null && <span className="font-mono text-muted-foreground">@{s.rpe}</span>}
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
 

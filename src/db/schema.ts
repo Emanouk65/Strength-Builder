@@ -1204,6 +1204,13 @@ export interface ExerciseHistorySession {
   }[]
 }
 
+export interface ExerciseHistoryOptions {
+  /** Leave this workout out (e.g. the session being logged right now). */
+  excludeWorkoutId?: string
+  /** Only sessions completed strictly before this moment. */
+  before?: Date | null
+}
+
 /**
  * Get recent logged sessions for an exercise (most recent first) — powers the
  * per-exercise history sheet. Each session lists its completed sets.
@@ -1211,12 +1218,19 @@ export interface ExerciseHistorySession {
 export async function getExerciseHistory(
   userId: string,
   exerciseId: string,
-  limit = 8
+  limit = 8,
+  opts: ExerciseHistoryOptions = {}
 ): Promise<ExerciseHistorySession[]> {
+  const beforeMs = opts.before ? new Date(opts.before).getTime() : null
   const workouts = await db.workouts
     .where('userId')
     .equals(userId)
-    .filter(w => w.status === 'completed' && w.completedAt != null)
+    .filter(w =>
+      w.status === 'completed' &&
+      w.completedAt != null &&
+      w.id !== opts.excludeWorkoutId &&
+      (beforeMs == null || new Date(w.completedAt).getTime() < beforeMs)
+    )
     .toArray()
 
   workouts.sort((a, b) => {
@@ -1261,6 +1275,20 @@ export async function getExerciseHistory(
   }
 
   return sessions
+}
+
+/**
+ * The most recent earlier session of an exercise, with every completed working
+ * set — shown on the workout screen beside the PR so you can see exactly how
+ * you did last time. null when there's no history yet.
+ */
+export async function getLastExerciseSession(
+  userId: string,
+  exerciseId: string,
+  opts: ExerciseHistoryOptions = {}
+): Promise<ExerciseHistorySession | null> {
+  const [last] = await getExerciseHistory(userId, exerciseId, 1, opts)
+  return last ?? null
 }
 
 /**
