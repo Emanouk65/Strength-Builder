@@ -38,7 +38,7 @@ import {
   formatSessionSummary,
 } from '@/lib/utils'
 import { BLOCK_CONFIG, ACHIEVEMENTS } from '@/lib/constants'
-import type { BlockType, SetInstance, AchievementId, Exercise } from '@/lib/types'
+import type { BlockType, SetInstance, AchievementId, Exercise, PlanDrill } from '@/lib/types'
 
 
 export function Workout() {
@@ -1218,7 +1218,22 @@ interface MobilityWorkout {
   id: string
   warmupDone?: string[]
   cooldownDone?: string[]
+  warmupPlan?: PlanDrill[]
+  cooldownPlan?: PlanDrill[]
   blocks: { exercises: { exercise?: Partial<Exercise>; sets: SetInstance[] }[] }[]
+}
+
+/** Coach-written warm-up or cool-down lines as checklist drills (ids stable per position). */
+function planDrills(list: PlanDrill[] | undefined, prefix: string): MobilityDrill[] | null {
+  if (!list || list.length === 0) return null
+  return list.map((d, i) => ({
+    id: `${prefix}-${i}`,
+    name: d.name,
+    kind: prefix === 'warm' ? ('dynamic_warmup' as const) : ('stretch' as const),
+    targets: [],
+    reps: d.dose,
+    cue: d.cue ?? '',
+  }))
 }
 
 function DrillRow({
@@ -1254,7 +1269,7 @@ function DrillRow({
           <span className={cn('text-sm font-semibold', done && 'text-muted-foreground line-through')}>{drill.name}</span>
           {dose && <span className="text-xs text-muted-foreground tabular-nums shrink-0">{dose}</span>}
         </span>
-        <span className="block text-xs text-muted-foreground mt-0.5">{drill.cue}</span>
+        {drill.cue && <span className="block text-xs text-muted-foreground mt-0.5">{drill.cue}</span>}
       </span>
     </button>
   )
@@ -1266,9 +1281,9 @@ function WarmupSection({ workout }: { workout: MobilityWorkout }) {
     .flatMap(b => b.exercises.map(e => e.exercise?.id ?? ''))
     .join(',')
   const drills = useMemo(
-    () => getWarmupDrills(exercises, workout.id),
+    () => planDrills(workout.warmupPlan, 'warm') ?? getWarmupDrills(exercises, workout.id),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [workout.id, exerciseKey]
+    [workout.id, exerciseKey, workout.warmupPlan]
   )
 
   const done = new Set(workout.warmupDone ?? [])
@@ -1343,9 +1358,9 @@ function CooldownScreen({
 }) {
   const exercises = workout.blocks.flatMap(b => b.exercises.map(e => e.exercise))
   const stretches = useMemo(
-    () => getCooldownStretches(exercises, workout.id),
+    () => planDrills(workout.cooldownPlan, 'cool') ?? getCooldownStretches(exercises, workout.id),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [workout.id]
+    [workout.id, workout.cooldownPlan]
   )
   const done = new Set(workout.cooldownDone ?? [])
   const doneCount = stretches.filter(d => done.has(d.id)).length

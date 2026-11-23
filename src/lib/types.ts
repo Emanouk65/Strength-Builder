@@ -251,6 +251,9 @@ export interface Workout {
   programId?: string | null
   programWeek?: number | null // 1-based week within the program
   programDay?: number | null  // 1-based day within the week
+  /** Coach-written warm-up and cool-down for a programmed session (replace the auto-picked drills). */
+  warmupPlan?: PlanDrill[]
+  cooldownPlan?: PlanDrill[]
   /** Mobility drill ids checked off during this session. */
   warmupDone?: string[]
   cooldownDone?: string[]
@@ -689,9 +692,25 @@ export interface GeneratedProgramExercise {
   note: string
 }
 
+/**
+ * A warm-up or cool-down item written by the coach. It is a checklist line inside the
+ * session, never a loggable exercise: "Bike, 3 min easy" or "90/90 hip switch, 5 a side".
+ */
+export interface PlanDrill {
+  name: string
+  /** Short dose shown on the right: "3 min", "5/side", "10". */
+  dose?: string
+  /** One-line cue under the name. */
+  cue?: string
+}
+
 /** One training day template (repeated each week with progression applied). */
 export interface GeneratedProgramDay {
   name: string // "Upper A", "Lower Power"
+  /** Coach-written warm-up, shown as the session's Warm-up checklist instead of the auto-picked drills. */
+  warmup?: PlanDrill[]
+  /** Coach-written cool-down, shown on the Cool down screen instead of the auto-picked stretches. */
+  cooldown?: PlanDrill[]
   exercises: GeneratedProgramExercise[]
 }
 
@@ -709,7 +728,10 @@ export interface GeneratedProgram {
   summary: string
   weeksCount: number
   days: GeneratedProgramDay[]
-  /** Optional per-week day templates: weeksCount entries, each the same length as days. Week w uses weekDays[w] instead of days, so movements can rotate. */
+  /**
+   * Optional per-week day templates: weeksCount entries. Week w uses weekDays[w] instead of days,
+   * so movements can rotate. Weeks may hold different numbers of sessions (3 one week, 4 the next).
+   */
   weekDays?: GeneratedProgramDay[][]
   weeklyProgression: GeneratedProgramWeek[]
 }
@@ -733,7 +755,15 @@ export interface Program {
   inboxRevision?: number | null
   /** Leading pre-start weeks, dated on consecutive days before the block proper. 0 or absent: none. */
   prestartWeeks?: number | null
+  /**
+   * 'flexible': each week is the seven days from startDate + 7 × week, and its sessions are a
+   * to-do list for that week, done in order on whatever days suit. Nothing counts as missed
+   * until the week is over. 'fixed' or absent: sessions are pinned to the preferred weekdays.
+   */
+  schedule?: ProgramSchedule | null
 }
+
+export type ProgramSchedule = 'fixed' | 'flexible'
 
 // ----------------------------------------------------------------------------
 // API Types
