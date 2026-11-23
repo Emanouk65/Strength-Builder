@@ -20,6 +20,7 @@
  *     "revision": 3,                          // bumped by Cato's weekly adaptation; same id = same block
  *     "changelog": ["Wk 2 bench 165 -> 170 (RPE 6.3)"],   // what the latest revision changed, for the card
  *     "prestartWeeks": 1,                     // optional: leading weeks of light sessions on consecutive days
+ *     "schedule": "flexible",                 // optional: each week's sessions are a to-do list, not pinned to weekdays
  *     "plan": { name, summary, days[], weekDays[][], weeklyProgression[] }
  *   }
  *
@@ -28,11 +29,18 @@
  * days of that window, one a day. With startDate Monday 16 Nov and three pre-start sessions,
  * they land Friday 20, Saturday 21 and Sunday 22, and week 2 starts Monday 23.
  *
+ * Flexible schedule: week w is the seven days from startDate + 7 × w, and its sessions are done
+ * in order on whatever days suit. Today shows the next one; a session only counts as missed once
+ * its week is over. Weeks may hold different numbers of sessions (plan.weekDays lengths).
+ *
+ * Warm-ups: a day's `warmup` and `cooldown` lists ({ name, dose, cue }) are checklist lines inside
+ * the session, not exercises to log.
+ *
  * A higher revision of an installed id is an UPDATE: the remaining planned workouts are
  * rebuilt from the new plan (with its targetWeights) and everything already done is kept.
  */
 import { getCurrentUser } from '@/db'
-import type { User } from '@/lib/types'
+import type { User, ProgramSchedule } from '@/lib/types'
 import { getCatoSyncConfig, saveCatoSyncConfig, readRepoFile } from './catoSync'
 import { db } from '@/db'
 import { getLocalDateString } from '@/lib/utils'
@@ -61,6 +69,8 @@ export interface InboxProgram {
   changelog: string[]
   /** Leading pre-start weeks (0 when absent), dated on consecutive days before the block proper. */
   prestartWeeks: number
+  /** 'flexible' when the file says so; otherwise sessions are pinned to the preferred weekdays. */
+  schedule: ProgramSchedule
   plan: unknown
 }
 
@@ -99,6 +109,7 @@ export async function fetchInboxProgram(): Promise<InboxState> {
       revision: typeof j.revision === 'number' && j.revision >= 1 ? Math.round(j.revision) : 1,
       changelog: Array.isArray(j.changelog) ? j.changelog.filter((x): x is string => typeof x === 'string').slice(0, 12) : [],
       prestartWeeks: 0,
+      schedule: j.schedule === 'flexible' ? 'flexible' : 'fixed',
       plan: j.plan,
     }
     program.prestartWeeks = typeof j.prestartWeeks === 'number' && j.prestartWeeks > 0
@@ -138,7 +149,7 @@ export async function installInboxProgram(program: InboxProgram, startDateOverri
   const gen = await previewInboxProgram(user, program)
   const startStr = startDateOverride || program.startDate
   const start = startStr ? new Date(startStr + 'T09:00:00') : new Date()
-  const programId = await materializeProgram(user.id, gen, program.goalText, start, { inboxId: program.id, inboxRevision: program.revision, prestartWeeks: program.prestartWeeks })
+  const programId = await materializeProgram(user.id, gen, program.goalText, start, { inboxId: program.id, inboxRevision: program.revision, prestartWeeks: program.prestartWeeks, schedule: program.schedule })
   await saveCatoSyncConfig({ installedProgramId: program.id, installedProgramRevision: program.revision })
   return { programId, warnings: gen.warnings }
 }
@@ -159,7 +170,7 @@ export async function updateInstalledProgram(program: InboxProgram): Promise<{ p
   if (!target) throw new Error('The installed block was not found on this device. Install it instead.')
   const gen = await previewInboxProgram(user, program)
   const from = new Date(getLocalDateString() + 'T00:00:00')
-  const { rebuilt, kept } = await rematerializeProgram(user.id, target.id, gen, from, { inboxId: program.id, inboxRevision: program.revision, prestartWeeks: program.prestartWeeks })
+  const { rebuilt, kept } = await rematerializeProgram(user.id, target.id, gen, from, { inboxId: program.id, inboxRevision: program.revision, prestartWeeks: program.prestartWeeks, schedule: program.schedule })
   await saveCatoSyncConfig({ installedProgramId: program.id, installedProgramRevision: program.revision })
   return { programId: target.id, rebuilt, kept, warnings: gen.warnings }
 }

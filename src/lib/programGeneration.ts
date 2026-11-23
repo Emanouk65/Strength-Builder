@@ -13,8 +13,11 @@ import type {
   Equipment,
   InjuryLocation,
   GeneratedProgram,
+  GeneratedProgramDay,
   GeneratedProgramExercise,
+  PlanDrill,
   Program,
+  ProgramSchedule,
   Workout,
   SetInstance,
 } from '@/lib/types'
@@ -259,7 +262,9 @@ export function validateGeneratedProgram(input: unknown, weeksCount: number): { 
       })
       .filter((e): e is GeneratedProgramExercise => e !== null)
     if (exercises.length < 1) errors.push(`day ${di + 1} has no valid exercises`)
-    return { name: d.name, exercises }
+    const warmup = parseDrills(d.warmup)
+    const cooldown = parseDrills(d.cooldown)
+    return { name: d.name, ...(warmup ? { warmup } : {}), ...(cooldown ? { cooldown } : {}), exercises }
   }
   const days = (o.days ?? []).map((d, di) => parseDay(d, di))
 
@@ -269,9 +274,10 @@ export function validateGeneratedProgram(input: unknown, weeksCount: number): { 
     if (!Array.isArray(o.weekDays) || o.weekDays.length !== weeksCount) {
       errors.push(`weekDays must have exactly ${weeksCount} weeks`)
     } else {
+      // Weeks may differ in length: a three-session week can lead into four-session weeks.
       weekDays = o.weekDays.map((wk, wi) => {
-        if (!Array.isArray(wk) || wk.length !== days.length) {
-          errors.push(`weekDays[${wi + 1}] must have ${days.length} days`)
+        if (!Array.isArray(wk) || wk.length < 1 || wk.length > 7) {
+          errors.push(`weekDays[${wi + 1}] must have 1 to 7 days`)
           return []
         }
         return wk.map((d, di) => parseDay(d, di))
@@ -306,6 +312,62 @@ export function validateGeneratedProgram(input: unknown, weeksCount: number): { 
     },
     errors: [],
   }
+}
+
+/** Coach-written warm-up or cool-down lines; anything malformed is dropped. Null when there are none. */
+function parseDrills(input: unknown): PlanDrill[] | null {
+  if (!Array.isArray(input)) return null
+  const out: PlanDrill[] = []
+  for (const raw of input.slice(0, 12)) {
+    const d = raw as Partial<PlanDrill> | null
+    if (typeof d?.name !== 'string' || !d.name.trim()) continue
+    out.push({
+      name: d.name.trim().slice(0, 60),
+      ...(typeof d.dose === 'string' && d.dose.trim() ? { dose: d.dose.trim().slice(0, 24) } : {}),
+      ...(typeof d.cue === 'string' && d.cue.trim() ? { cue: d.cue.trim().slice(0, 140) } : {}),
+    })
+  }
+  return out.length ? out : null
+}
+
+const LIBRARY_BY_ID = new Map(EXERCISE_LIBRARY.map(e => [e.id, e]))
+
+/**
+ * Prep work belongs in the Warm-up checklist, not in the list of exercises to log. Older plans
+ * (and Cato's, until 2026-11-22) open every session with `bike` 1×1 and a mobility drill as if
+ * they were lifts, so each showed up as its own card with a set to log. This moves the leading
+ * run of mobility drills and a one-set bike into the warm-up, and any later mobility drill into
+ * the cool-down, keeping a coach-written warm-up or cool-down when the day has one.
+ */
+export function splitPrepWork(day: GeneratedProgramDay): { warmup: PlanDrill[]; cooldown: PlanDrill[]; exercises: GeneratedProgramExercise[] } {
+  const warmup: PlanDrill[] = [...(day.warmup ?? [])]
+  const cooldown: PlanDrill[] = [...(day.cooldown ?? [])]
+  const exercises: GeneratedProgramExercise[] = []
+  const toDrill = (ex: GeneratedProgramExercise): PlanDrill => {
+    const lib = LIBRARY_BY_ID.get(ex.exerciseId)
+    const note = (ex.note ?? '').trim()
+    const minutes = note.match(/^(\d+)\s*min/i)
+    const perSide = /per side|a side|each side/i.test(note)
+    const dose = minutes ? `${minutes[1]} min` : ex.reps > 1 ? `${ex.sets > 1 ? `${ex.sets}×` : ''}${ex.reps}${perSide ? '/side' : ''}` : undefined
+    return { name: lib?.name ?? ex.exerciseId, ...(dose ? { dose } : {}), ...(note ? { cue: note } : {}) }
+  }
+  let leading = true
+  for (const ex of day.exercises) {
+    const lib = LIBRARY_BY_ID.get(ex.exerciseId)
+    const isMobility = lib?.category === 'mobility'
+    const isPulseRaiser = ex.exerciseId === 'bike' && ex.sets === 1 && ex.percent1RM == null && ex.targetWeight == null
+    if (leading && (isMobility || isPulseRaiser)) {
+      if (!day.warmup?.length) warmup.push(toDrill(ex))
+      continue
+    }
+    leading = false
+    if (isMobility) {
+      if (!day.cooldown?.length) cooldown.push(toDrill(ex))
+      continue
+    }
+    exercises.push(ex)
+  }
+  return { warmup, cooldown, exercises }
 }
 
 function normalizeName(s: string): string {
@@ -492,18 +554,21 @@ export async function generateProgramPlan(
 function scheduleDates(
   startDate: Date,
   weeks: number,
-  daysPerWeek: number,
+  sessionsPerWeek: number[],
   preferredDays: number[],
-  prestart: { weeks: number; sessionsPerWeek: number[] } = { weeks: 0, sessionsPerWeek: [] }
+  prestart: { weeks: number; sessionsPerWeek: number[] } = { weeks: 0, sessionsPerWeek: [] },
+  schedule: ProgramSchedule = 'fixed'
 ): Date[][] {
-  let chosen = [...new Set(preferredDays)].filter(d => d >= 0 && d <= 6).sort((a, b) => a - b)
-  const fallbackOrder = [1, 3, 5, 2, 4, 6, 0]
-  for (const d of fallbackOrder) {
-    if (chosen.length >= daysPerWeek) break
-    if (!chosen.includes(d)) chosen.push(d)
+  const countFor = (w: number) => Math.min(Math.max(sessionsPerWeek[w] ?? sessionsPerWeek[0] ?? 3, 1), 7)
+  const weekdaysFor = (n: number) => {
+    let chosen = [...new Set(preferredDays)].filter(d => d >= 0 && d <= 6).sort((a, b) => a - b)
+    const fallbackOrder = [1, 3, 5, 2, 4, 6, 0]
+    for (const d of fallbackOrder) {
+      if (chosen.length >= n) break
+      if (!chosen.includes(d)) chosen.push(d)
+    }
+    return new Set(chosen.slice(0, n))
   }
-  chosen = chosen.slice(0, daysPerWeek).sort((a, b) => a - b)
-  const chosenSet = new Set(chosen)
 
   const result: Date[][] = []
   const cursor = new Date(startDate)
@@ -511,7 +576,7 @@ function scheduleDates(
 
   const prestartWeeks = Math.min(Math.max(Math.round(prestart.weeks || 0), 0), Math.max(weeks - 1, 0))
   for (let w = 0; w < prestartWeeks; w++) {
-    const sessions = Math.min(Math.max(prestart.sessionsPerWeek[w] ?? daysPerWeek, 0), 7)
+    const sessions = Math.min(Math.max(prestart.sessionsPerWeek[w] ?? countFor(w), 0), 7)
     const week: Date[] = []
     for (let i = 7 - sessions; i < 7; i++) {
       const day = new Date(cursor)
@@ -522,15 +587,37 @@ function scheduleDates(
     cursor.setDate(cursor.getDate() + 7)
   }
 
+  if (schedule === 'flexible') {
+    // Each week is the seven days from startDate + 7 × week. The dates only order the week's
+    // to-do list and place it on the calendar; the sessions are done on whatever days suit.
+    const SPREAD: Record<number, number[]> = { 1: [0], 2: [0, 3], 3: [0, 2, 4], 4: [0, 1, 3, 4], 5: [0, 1, 2, 3, 4], 6: [0, 1, 2, 3, 4, 5], 7: [0, 1, 2, 3, 4, 5, 6] }
+    for (let w = prestartWeeks; w < weeks; w++) {
+      result.push(SPREAD[countFor(w)].map(offset => {
+        const day = new Date(cursor)
+        day.setDate(day.getDate() + offset)
+        return day
+      }))
+      cursor.setDate(cursor.getDate() + 7)
+    }
+    return result
+  }
+
   for (let w = prestartWeeks; w < weeks; w++) {
+    const n = countFor(w)
+    const chosenSet = weekdaysFor(n)
     const week: Date[] = []
-    while (week.length < daysPerWeek) {
+    while (week.length < n) {
       if (chosenSet.has(cursor.getDay())) week.push(new Date(cursor))
       cursor.setDate(cursor.getDate() + 1)
     }
     result.push(week)
   }
   return result
+}
+
+/** Sessions in each week of a plan (weeks may differ: three one week, four the next). */
+function sessionsPerWeekOf(plan: GeneratedProgram): number[] {
+  return Array.from({ length: plan.weeksCount }, (_, w) => (plan.weekDays?.[w] ?? plan.days).length)
 }
 
 /** Session slots per pre-start week, so a short pre-start week only claims the days it has. */
@@ -582,6 +669,8 @@ async function createProgramWorkout(
   prog: GeneratedProgram['weeklyProgression'][number],
   scheduledDate: Date
 ): Promise<void> {
+  const prep = splitPrepWork(day)
+  day = { ...day, exercises: prep.exercises }
   const workout: Workout = {
     id: crypto.randomUUID(),
     userId: ctx.userId,
@@ -599,6 +688,8 @@ async function createProgramWorkout(
     totalDuration: 0,
     coachingNotes: [],
     skipReason: null,
+    ...(prep.warmup.length ? { warmupPlan: prep.warmup } : {}),
+    ...(prep.cooldown.length ? { cooldownPlan: prep.cooldown } : {}),
   }
   await db.workouts.add(workout)
 
@@ -707,6 +798,8 @@ export interface ProgramOrigin {
   inboxRevision?: number | null
   /** Leading pre-start weeks, scheduled on consecutive days instead of preferred weekdays. */
   prestartWeeks?: number | null
+  /** 'flexible': each week's sessions are a to-do list for that week, not pinned to weekdays. */
+  schedule?: ProgramSchedule | null
 }
 
 /**
@@ -729,9 +822,11 @@ export async function materializeProgram(
   const ctx = await buildContext(userId, programId, now)
 
   const { plan } = gen
-  const daysPerWeek = plan.days.length
+  const perWeek = sessionsPerWeekOf(plan)
+  const daysPerWeek = Math.max(...perWeek)
   const prestartWeeks = origin.prestartWeeks ?? 0
-  const dates = scheduleDates(startDate, plan.weeksCount, daysPerWeek, ctx.preferredDays, prestartOf(plan, prestartWeeks))
+  const schedule: ProgramSchedule = origin.schedule === 'flexible' ? 'flexible' : 'fixed'
+  const dates = scheduleDates(startDate, plan.weeksCount, perWeek, ctx.preferredDays, prestartOf(plan, prestartWeeks), schedule)
   const progressionByWeek = new Map(plan.weeklyProgression.map(w => [w.week, w]))
 
   await db.transaction(
@@ -766,6 +861,7 @@ export async function materializeProgram(
         inboxId: origin.inboxId ?? null,
         inboxRevision: origin.inboxRevision ?? null,
         prestartWeeks,
+        schedule,
       }
       await db.programs.add(program)
 
@@ -804,9 +900,10 @@ export async function rematerializeProgram(
   const ctx = await buildContext(userId, programId, now)
 
   const { plan } = gen
-  const daysPerWeek = plan.days.length
+  const perWeek = sessionsPerWeekOf(plan)
   const prestartWeeks = origin.prestartWeeks ?? program.prestartWeeks ?? 0
-  const dates = scheduleDates(new Date(program.startDate), plan.weeksCount, daysPerWeek, ctx.preferredDays, prestartOf(plan, prestartWeeks))
+  const schedule: ProgramSchedule = (origin.schedule ?? program.schedule) === 'flexible' ? 'flexible' : 'fixed'
+  const dates = scheduleDates(new Date(program.startDate), plan.weeksCount, perWeek, ctx.preferredDays, prestartOf(plan, prestartWeeks), schedule)
   const progressionByWeek = new Map(plan.weeklyProgression.map(w => [w.week, w]))
   const from = new Date(fromDate)
   from.setHours(0, 0, 0, 0)
@@ -845,6 +942,8 @@ export async function rematerializeProgram(
         inboxId: origin.inboxId ?? program.inboxId ?? null,
         inboxRevision: origin.inboxRevision ?? program.inboxRevision ?? null,
         prestartWeeks,
+        schedule,
+        daysPerWeek: Math.max(...perWeek),
       })
     }
   )

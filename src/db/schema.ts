@@ -1348,9 +1348,30 @@ export async function getActiveProgram(userId: string): Promise<Program | undefi
 }
 
 /**
+ * The flexible-schedule week a date falls in: week w (1-based) is the seven days from
+ * program.startDate + 7 × (w − 1). Returns the week number and the day that week starts.
+ */
+export function flexibleWeekOf(program: Program, date: Date = new Date()): { week: number; start: Date } {
+  const origin = new Date(program.startDate)
+  origin.setHours(0, 0, 0, 0)
+  const day = new Date(date)
+  day.setHours(0, 0, 0, 0)
+  const index = Math.floor(Math.round((day.getTime() - origin.getTime()) / 86_400_000) / 7)
+  const start = new Date(origin)
+  start.setDate(start.getDate() + index * 7)
+  return { week: index + 1, start }
+}
+
+const bySlot = (a: Workout, b: Workout) =>
+  (a.programWeek ?? 0) - (b.programWeek ?? 0) || (a.programDay ?? 0) - (b.programDay ?? 0) ||
+  new Date(a.scheduledDate).getTime() - new Date(b.scheduledDate).getTime()
+
+/**
  * Next program workout to surface on the Dashboard hero: an in-progress
  * session wins, then the earliest upcoming planned workout, then (if the
- * user is behind) the earliest missed one.
+ * user is behind) the earliest missed one. On a flexible schedule it is the
+ * first session not yet done in the current week, in program order, whatever
+ * its nominal date; then the first of the weeks ahead.
  */
 export async function getNextProgramWorkout(userId: string): Promise<Workout | undefined> {
   const program = await getActiveProgram(userId)
@@ -1365,15 +1386,33 @@ export async function getNextProgramWorkout(userId: string): Promise<Workout | u
   const inProgress = workouts.find(w => w.status === 'in_progress')
   if (inProgress) return inProgress
 
+  if (program.schedule === 'flexible') {
+    const { week } = flexibleWeekOf(program)
+    const ordered = [...workouts].sort(bySlot)
+    return ordered.find(w => (w.programWeek ?? 0) >= week) ?? ordered[0]
+  }
+
   const startOfToday = new Date()
   startOfToday.setHours(0, 0, 0, 0)
   return workouts.find(w => new Date(w.scheduledDate) >= startOfToday) ?? workouts[0]
 }
 
-/** Program workouts whose scheduled date has passed without being started. */
+/**
+ * Program workouts whose scheduled date has passed without being started. On a flexible
+ * schedule only sessions from a week that is already over count as missed.
+ */
 export async function getMissedProgramWorkouts(userId: string): Promise<Workout[]> {
   const program = await getActiveProgram(userId)
   if (!program) return []
+
+  if (program.schedule === 'flexible') {
+    const { week } = flexibleWeekOf(program)
+    const missed = await db.workouts
+      .where('programId').equals(program.id)
+      .filter(w => w.status === 'planned' && (w.programWeek ?? 0) < week)
+      .toArray()
+    return missed.sort(bySlot)
+  }
 
   const startOfToday = new Date()
   startOfToday.setHours(0, 0, 0, 0)
@@ -1382,6 +1421,19 @@ export async function getMissedProgramWorkouts(userId: string): Promise<Workout[
     .filter(w => w.status === 'planned' && new Date(w.scheduledDate) < startOfToday)
     .toArray()
   return missed.sort((a, b) => new Date(a.scheduledDate).getTime() - new Date(b.scheduledDate).getTime())
+}
+
+/** On a flexible schedule: sessions planned and done in the current week, for "2 of 4 done". */
+export async function getFlexibleWeekProgress(userId: string): Promise<{ week: number; done: number; total: number } | null> {
+  const program = await getActiveProgram(userId)
+  if (!program || program.schedule !== 'flexible') return null
+  const { week } = flexibleWeekOf(program)
+  const thisWeek = await db.workouts
+    .where('programId').equals(program.id)
+    .filter(w => w.programWeek === week)
+    .toArray()
+  if (thisWeek.length === 0) return null
+  return { week, done: thisWeek.filter(w => w.status === 'completed' || w.status === 'skipped').length, total: thisWeek.length }
 }
 
 // ============================================================================

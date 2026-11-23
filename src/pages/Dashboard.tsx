@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useNavigate } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
-import { db, resolveExercises, getCurrentUser, getNextProgramWorkout, getMissedProgramWorkouts, getActiveProgram, skipWorkout, getRecentReflections, getTodaysCheckIn, getRecentCheckIns, getDraftWorkout, getScheduledWorkouts } from '@/db'
+import { db, resolveExercises, getCurrentUser, getNextProgramWorkout, getMissedProgramWorkouts, getActiveProgram, skipWorkout, getRecentReflections, getTodaysCheckIn, getRecentCheckIns, getDraftWorkout, getScheduledWorkouts, getFlexibleWeekProgress } from '@/db'
 import { Button, Skeleton } from '@/components/ui'
 import { formatDate, cn, getShortDayName, getLocalDateString, getExerciseInputKind } from '@/lib/utils'
 import type { WorkoutReflection, Workout, DailyCheckIn } from '@/lib/types'
@@ -24,6 +24,14 @@ export function Dashboard() {
       return (await getActiveProgram(user.id)) ?? null
     },
     [user]
+  )
+
+  const weekProgress = useLiveQuery(
+    async () => {
+      if (!user) return null
+      return getFlexibleWeekProgress(user.id)
+    },
+    [user, nextWorkout?.id, nextWorkout?.status]
   )
 
   const missedWorkouts = useLiveQuery(
@@ -241,6 +249,7 @@ export function Dashboard() {
         <NextWorkoutCard
           nextWorkout={nextWorkout}
           programName={activeProgram?.name ?? null}
+          weekProgress={weekProgress ?? null}
           lifts={heroLifts ?? []}
           onStart={(id) => navigate(`/workout/${id}`)}
           onEdit={(id) => navigate(`/plan/${id}`)}
@@ -293,6 +302,7 @@ function cleanName(name: string): string {
 function NextWorkoutCard({
   nextWorkout,
   programName,
+  weekProgress,
   lifts,
   onStart,
   onEdit,
@@ -301,6 +311,8 @@ function NextWorkoutCard({
 }: {
   nextWorkout: Workout | null | undefined
   programName: string | null
+  /** Flexible schedule only: this week's sessions done and planned. */
+  weekProgress: { week: number; done: number; total: number } | null
   lifts: { name: string; sets: number; prep: boolean }[]
   onStart: (id: string) => void
   onEdit: (id: string) => void
@@ -312,7 +324,13 @@ function NextWorkoutCard({
   if (nextWorkout && nextWorkout.status !== 'completed') {
     const isToday = isWorkoutToday(nextWorkout.scheduledDate)
     const isInProgress = nextWorkout.status === 'in_progress'
-    const when = isInProgress ? 'In progress' : isToday ? 'Today' : formatDate(nextWorkout.scheduledDate, 'long')
+    // Flexible weeks: the session is whenever he gets to it, so say where the week stands, not a date.
+    const flexibleWhen = weekProgress
+      ? nextWorkout.programWeek === weekProgress.week
+        ? `This week · ${weekProgress.done} of ${weekProgress.total} done`
+        : 'Next week'
+      : null
+    const when = isInProgress ? 'In progress' : flexibleWhen ?? (isToday ? 'Today' : formatDate(nextWorkout.scheduledDate, 'long'))
     const meta = [
       programName && nextWorkout.programWeek != null ? `Week ${nextWorkout.programWeek}` : null,
       programName,

@@ -170,7 +170,10 @@ export function ProgramInboxCard() {
         )}
 
         {preview?.plan.weekDays && (
-          <p className="text-xs text-muted-foreground mt-3">Week 1 shown. The movements after each main lift change every week.</p>
+          <p className="text-xs text-muted-foreground mt-3">
+            Week 1 shown. Sessions per week: {preview.plan.weekDays.map(w => w.length).join(', ')}.
+            {p.schedule === 'flexible' ? ' Do each week\u2019s sessions in order, on whatever days suit.' : ''}
+          </p>
         )}
 
         {preview && preview.warnings.length > 0 && (
