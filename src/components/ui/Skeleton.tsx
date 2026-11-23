@@ -5,5 +5,5 @@ import { cn } from '@/lib/utils'
  * undefined on first paint, and a skeleton beats a blank flash.
  */
 export function Skeleton({ className }: { className?: string }) {
-  return <div className={cn('animate-pulse rounded-xl bg-secondary/60', className)} aria-hidden />
+  return <div className={cn('animate-pulse rounded-2xl bg-white/[0.06]', className)} aria-hidden />
 }

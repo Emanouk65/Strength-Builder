@@ -26,43 +26,34 @@ export function Layout({ children }: LayoutProps) {
     location.pathname.startsWith('/plan')
 
   return (
-    <div className="flex min-h-screen flex-col bg-background safe-area-inset">
-      {/* Main content */}
-      <main className={cn('flex-1', !hideNav && 'pb-20')}>{children}</main>
+    <div className="flex min-h-screen flex-col safe-area-inset">
+      <main className={cn('flex-1', !hideNav && 'pb-28')}>{children}</main>
 
-      {/* Bottom navigation */}
+      {/* Floating glass tab bar */}
       {!hideNav && (
-        <nav className="fixed bottom-0 left-0 right-0 z-50 safe-area-bottom">
-          {/* Blur backdrop */}
-          <div className="absolute inset-0 bg-card/90 backdrop-blur-xl border-t border-border/50" />
-
-          <div className="relative mx-auto flex max-w-lg items-center justify-around px-2">
+        <nav className="fixed inset-x-0 bottom-0 z-50 px-4 pb-[max(12px,env(safe-area-inset-bottom))] pointer-events-none">
+          <div className="pointer-events-auto mx-auto flex max-w-md items-center justify-between gap-1 rounded-full glass-bar p-1.5">
             <NavItem to="/" icon={HomeIcon} label="Today" />
             <NavItem to="/history" icon={ChartIcon} label="History" />
 
-            {/* Center Plan FAB — navigates directly to the existing draft if any,
-                bypassing /plan bootstrap. Prevents lost exercises on re-entry. */}
-            <div className="relative -mt-5">
-              <button
-                onClick={() => navigate(draft ? `/plan/${draft.id}` : '/plan')}
-                className={cn(
-                  'relative flex h-14 w-14 items-center justify-center rounded-full',
-                  'bg-primary text-primary-foreground',
-                  'shadow-glow transition-all duration-200',
-                  'hover:scale-105 hover:shadow-[0_0_24px_rgba(255,255,255,0.25)]',
-                  'active:scale-95'
-                )}
-                aria-label={hasDraft ? 'Resume drafted workout' : 'Plan a workout'}
-              >
-                <PlusIcon className="h-7 w-7" />
-                {hasDraft && (
-                  <span className="absolute -top-0.5 -right-0.5 h-3.5 w-3.5 rounded-full bg-foreground border-2 border-background animate-pulse-slow" aria-hidden />
-                )}
-              </button>
-            </div>
+            {/* Plan opens the existing draft if there is one, so exercises aren't lost. */}
+            <button
+              onClick={() => navigate(draft ? `/plan/${draft.id}` : '/plan')}
+              className={cn(
+                'relative flex h-12 w-12 shrink-0 items-center justify-center rounded-full',
+                'bg-white text-black shadow-[inset_0_1px_0_rgba(255,255,255,0.9),0_6px_20px_rgba(255,255,255,0.12)]',
+                'transition-transform duration-200 active:scale-95'
+              )}
+              aria-label={hasDraft ? 'Resume drafted workout' : 'Plan a workout'}
+            >
+              <PlusIcon className="h-6 w-6" />
+              {hasDraft && (
+                <span className="absolute top-0 right-0 h-3 w-3 rounded-full bg-sky-400 ring-2 ring-black" aria-hidden />
+              )}
+            </button>
 
             <NavItem to="/lift-records" icon={TrophyIcon} label="Records" />
-            <NavItem to="/settings" icon={SettingsIcon} label="Settings" />
+            <NavItem to="/coach" icon={ProgramIcon} label="Program" />
           </div>
         </nav>
       )}
@@ -83,7 +74,7 @@ function NavItem({ to, icon: Icon, label }: NavItemProps) {
       end={to === '/'}
       className={({ isActive }) =>
         cn(
-          'relative flex flex-col items-center justify-center gap-1 w-16 h-14 my-1 rounded-2xl text-xs font-medium transition-colors touch-target',
+          'relative flex flex-1 flex-col items-center justify-center gap-0.5 h-12 rounded-full text-[10px] font-medium transition-colors touch-target',
           isActive ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'
         )
       }
@@ -93,12 +84,12 @@ function NavItem({ to, icon: Icon, label }: NavItemProps) {
           {isActive && (
             <motion.div
               layoutId="nav-indicator"
-              className="absolute inset-0 rounded-2xl bg-secondary/80"
-              transition={{ type: 'spring', stiffness: 500, damping: 32 }}
+              className="absolute inset-0 rounded-full bg-white/[0.10] shadow-[inset_0_1px_0_rgba(255,255,255,0.12)]"
+              transition={{ type: 'spring', stiffness: 500, damping: 34 }}
             />
           )}
-          <Icon className={cn('relative z-10 h-5 w-5')} />
-          <span className={cn('relative z-10 text-[10px]', isActive && 'font-semibold')}>{label}</span>
+          <Icon className="relative z-10 h-[21px] w-[21px]" />
+          <span className={cn('relative z-10', isActive && 'font-semibold')}>{label}</span>
         </>
       )}
     </NavLink>
@@ -129,11 +120,11 @@ function ChartIcon({ className }: { className?: string }) {
   )
 }
 
-function SettingsIcon({ className }: { className?: string }) {
+function ProgramIcon({ className }: { className?: string }) {
   return (
-    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-      <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3.5" y="4.5" width="17" height="16" rx="3" />
+      <path d="M3.5 9.5h17M8 2.5v4M16 2.5v4M7.5 13.5h3M7.5 16.5h6" />
     </svg>
   )
 }

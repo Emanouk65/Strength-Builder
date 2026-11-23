@@ -7,10 +7,32 @@
     @apply border-border;
   }
 
+  html {
+    background: #050507;
+  }
+
   body {
-    @apply bg-background text-foreground;
-    font-feature-settings: "rlig" 1, "calt" 1;
+    @apply text-foreground;
+    background: transparent;
+    font-feature-settings: "rlig" 1, "calt" 1, "tnum" 0;
     -webkit-tap-highlight-color: transparent;
+    -webkit-font-smoothing: antialiased;
+    letter-spacing: -0.01em;
+  }
+
+  /* Ambient backdrop: soft cool light behind everything, so the glass
+     surfaces have something to refract. Fixed, never scrolls, no layout cost. */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: -20vh -20vw;
+    z-index: -1;
+    pointer-events: none;
+    background:
+      radial-gradient(42vmax 34vmax at 12% 6%, rgba(120, 150, 255, 0.16), transparent 62%),
+      radial-gradient(38vmax 30vmax at 92% 18%, rgba(190, 140, 255, 0.10), transparent 60%),
+      radial-gradient(50vmax 40vmax at 50% 108%, rgba(90, 200, 220, 0.09), transparent 62%),
+      #050507;
   }
 
   /* Custom scrollbar for dark theme */
@@ -75,29 +97,74 @@
     padding-bottom: env(safe-area-inset-bottom);
   }
 
-  /* Frosted glass card surface — monochrome */
+  /* ── Liquid glass ─────────────────────────────────────────────
+     Three weights, same recipe: a faint white tint, backdrop blur with
+     extra saturation, a hairline rim and a bright top edge (the
+     "specular" line that makes it read as glass, not grey). */
   .glass {
-    background: rgba(15, 15, 15, 0.7);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.075) 0%, rgba(255, 255, 255, 0.035) 100%);
+    -webkit-backdrop-filter: blur(22px) saturate(170%);
+    backdrop-filter: blur(22px) saturate(170%);
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.14),
+      inset 0 -1px 0 rgba(255, 255, 255, 0.03),
+      0 10px 30px -12px rgba(0, 0, 0, 0.6);
   }
 
-  /* Header background — flat near-black with subtle top sheen */
+  /* Lighter: rows and chips inside a glass card. */
+  .glass-soft {
+    background: rgba(255, 255, 255, 0.055);
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  }
+
+  /* Heavier: floating bars and sheets that sit over scrolling content. */
+  .glass-bar {
+    background:
+      linear-gradient(180deg, rgba(40, 40, 46, 0.62) 0%, rgba(22, 22, 26, 0.72) 100%);
+    -webkit-backdrop-filter: blur(30px) saturate(190%);
+    backdrop-filter: blur(30px) saturate(190%);
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.16),
+      0 18px 40px -16px rgba(0, 0, 0, 0.75);
+  }
+
+  /* Hero: the one surface per screen that should catch the eye. */
+  .glass-hero {
+    position: relative;
+    background:
+      radial-gradient(120% 90% at 0% 0%, rgba(140, 165, 255, 0.20), transparent 55%),
+      radial-gradient(90% 80% at 100% 100%, rgba(120, 220, 230, 0.10), transparent 60%),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.09) 0%, rgba(255, 255, 255, 0.04) 100%);
+    -webkit-backdrop-filter: blur(26px) saturate(180%);
+    backdrop-filter: blur(26px) saturate(180%);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.22),
+      0 24px 48px -20px rgba(0, 0, 0, 0.8);
+  }
+
+  /* Legacy names kept so older screens pick up the new look. */
   .gradient-header {
-    background: linear-gradient(180deg, #0F0F0F 0%, #000000 100%);
+    background: transparent;
   }
 
-  /* Primary button — flat white */
   .btn-gradient {
     background: #FFFFFF;
     color: #000000;
   }
 
-  /* Accent surface — subtle white-on-dark */
   .gradient-green {
-    background: linear-gradient(135deg, #1A1A1A 0%, #0F0F0F 100%);
+    background: rgba(255, 255, 255, 0.06);
     border: 1px solid rgba(255, 255, 255, 0.1);
+  }
+
+  /* Small all-caps label used sparingly for section names. */
+  .eyebrow {
+    @apply text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground;
   }
 }
 

@@ -86,21 +86,9 @@ export function Coach() {
   }
 
   return (
-    <div className="min-h-screen bg-background pb-24">
-      <header className="px-5 pt-12 pb-5 flex items-start gap-3">
-        <button
-          onClick={() => navigate(-1)}
-          className="h-9 w-9 flex items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors -ml-1"
-          aria-label="Back"
-        >
-          <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-            <path d="M15 18l-6-6 6-6" />
-          </svg>
-        </button>
-        <div>
-          <p className="text-[10px] uppercase tracking-widest text-muted-foreground">AI Coach</p>
-          <h1 className="text-2xl font-bold tracking-tight mt-1">Build a program</h1>
-        </div>
+    <div className="min-h-screen pb-44">
+      <header className="px-5 pt-14 pb-5">
+        <h1 className="text-[34px] font-bold leading-none tracking-tight text-foreground">Program</h1>
       </header>
 
       <div className="px-5 mb-5">
@@ -112,11 +100,8 @@ export function Coach() {
         <div className="px-5">
           <Card>
             <CardContent className="pt-6 pb-6 text-center">
-              <span className="text-4xl">🔑</span>
-              <p className="font-semibold mt-3">Connect Claude first</p>
-              <p className="text-sm text-muted-foreground mt-1 mb-4">
-                The Coach uses your Claude API key (stored only on this device) to design programs around your goals, records, and recovery.
-              </p>
+              <p className="font-semibold">Program builder is off</p>
+              <p className="text-sm text-muted-foreground mt-1 mb-4">Add a Claude API key in Settings to build programs here.</p>
               <Button onClick={() => navigate('/settings')}>Open Settings</Button>
             </CardContent>
           </Card>
@@ -191,7 +176,7 @@ export function Coach() {
           </section>
 
           <Button className="w-full" size="lg" onClick={handleGenerate}>
-            ✨ Generate program
+            Generate program
           </Button>
         </div>
       )}
@@ -276,8 +261,8 @@ export function Coach() {
           </div>
 
           {/* Sticky action bar */}
-          <div className="fixed bottom-0 inset-x-0 z-40 bg-background/90 backdrop-blur-xl border-t border-border/40 safe-area-bottom">
-            <div className="max-w-lg mx-auto px-5 py-3 flex gap-2">
+          <div className="fixed inset-x-0 bottom-[calc(84px+env(safe-area-inset-bottom))] z-40 px-4">
+            <div className="max-w-lg mx-auto glass-bar rounded-full p-1.5 flex gap-1.5">
               <Button variant="ghost" onClick={() => setStage('intake')} className="flex-1" disabled={isAccepting}>
                 Redo
               </Button>

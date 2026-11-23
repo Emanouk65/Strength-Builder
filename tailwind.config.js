@@ -8,18 +8,20 @@ export default {
     extend: {
       colors: {
         // Monochrome dark theme — pure black/white with subtle grays
-        background: '#000000',
+        background: '#050507',
         foreground: '#FFFFFF',
-        card: '#0F0F0F',
+        // Liquid glass: surfaces are white at low alpha over the ambient backdrop,
+        // so a `/NN` modifier scales the tint instead of replacing it.
+        card: 'rgb(255 255 255 / calc(<alpha-value> * 0.055))',
         'card-foreground': '#FFFFFF',
         // Primary = white (used for CTAs and active states)
         primary: '#FFFFFF',
         'primary-foreground': '#000000',
         // Secondary surfaces (subtle steps of gray)
-        secondary: '#1A1A1A',
+        secondary: 'rgb(255 255 255 / calc(<alpha-value> * 0.09))',
         'secondary-foreground': '#FFFFFF',
-        muted: '#141414',
-        'muted-foreground': '#8A8A8A',
+        muted: 'rgb(255 255 255 / calc(<alpha-value> * 0.06))',
+        'muted-foreground': 'rgb(235 235 245 / calc(<alpha-value> * 0.55))',
         // Accent (kept = white for monochrome)
         accent: '#FFFFFF',
         'accent-foreground': '#000000',
@@ -37,8 +39,8 @@ export default {
         success: '#FFFFFF',
         warning: '#FBBF24',
         // Borders / inputs
-        border: '#262626',
-        input: '#141414',
+        border: 'rgb(255 255 255 / calc(<alpha-value> * 0.10))',
+        input: 'rgb(255 255 255 / calc(<alpha-value> * 0.07))',
         ring: '#FFFFFF',
         // RPE training states — graded grayscale + red for max
         'rpe-low': '#A0A0A0',
@@ -48,7 +50,7 @@ export default {
         'pain-signal': '#EF4444',
       },
       fontFamily: {
-        sans: ['Inter', '-apple-system', 'BlinkMacSystemFont', 'system-ui', 'sans-serif'],
+        sans: ['-apple-system', 'BlinkMacSystemFont', '"SF Pro Text"', 'Inter', 'system-ui', 'sans-serif'],
         mono: ['SF Mono', 'JetBrains Mono', 'monospace'],
       },
       fontSize: {
@@ -63,8 +65,9 @@ export default {
         'safe-right': 'env(safe-area-inset-right)',
       },
       borderRadius: {
-        '2xl': '1rem',
-        '3xl': '1.5rem',
+        '2xl': '1.125rem',
+        '3xl': '1.625rem',
+        '4xl': '2rem',
       },
       boxShadow: {
         'glow': '0 0 0 1px rgba(255, 255, 255, 0.12), 0 8px 28px rgba(0, 0, 0, 0.55)',

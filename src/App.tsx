@@ -46,7 +46,7 @@ function AnimatedRoutes() {
         exit={reduceMotion ? undefined : pageMotion.exit}
         transition={reduceMotion ? { duration: 0 } : pageMotion.transition}
         onAnimationStart={() => window.scrollTo({ top: 0, left: 0 })}
-        className="min-h-screen bg-background"
+        className="min-h-screen"
       >
         <Routes location={location} key={location.pathname}>
           <Route path="/" element={<Dashboard />} />
@@ -71,7 +71,7 @@ function AnimatedRoutes() {
 
 function LoadingScreen() {
   return (
-    <div className="flex h-screen items-center justify-center bg-background">
+    <div className="flex h-screen items-center justify-center">
       <div className="flex flex-col items-center gap-4">
         <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
         <p className="text-sm text-muted-foreground">Loading...</p>
@@ -131,11 +131,8 @@ function App() {
 
   if (initError) {
     return (
-      <div className="flex h-screen items-center justify-center bg-background p-6">
+      <div className="flex h-screen items-center justify-center p-6">
         <div className="max-w-sm text-center">
-          <div className="w-14 h-14 rounded-full bg-destructive/10 flex items-center justify-center mx-auto mb-4">
-            <span className="text-2xl">⚠️</span>
-          </div>
           <h1 className="text-xl font-bold text-foreground mb-2">Database Error</h1>
           <p className="text-sm text-muted-foreground mb-4">{initError}</p>
           <button

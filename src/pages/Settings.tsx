@@ -41,7 +41,7 @@ export function Settings() {
 
   if (!localUser) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center p-4">
+      <div className="min-h-screen flex items-center justify-center p-4">
         <div className="text-center">
           <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent mx-auto mb-4" />
           <p className="text-muted-foreground">Loading settings...</p>
@@ -92,10 +92,16 @@ export function Settings() {
   }
 
   return (
-    <div className="min-h-screen bg-background p-4 pb-8">
-      <header className="mb-6">
-        <h1 className="text-2xl font-bold">Settings</h1>
-        <p className="text-sm text-muted-foreground">Configure your training system</p>
+    <div className="min-h-screen p-4 pb-8">
+      <header className="pt-10 pb-5 flex items-center gap-2">
+        <button
+          onClick={() => navigate('/')}
+          aria-label="Back"
+          className="glass-soft h-9 w-9 rounded-full flex items-center justify-center text-foreground/80 -ml-0.5"
+        >
+          <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M15 18l-6-6 6-6" /></svg>
+        </button>
+        <h1 className="text-[28px] font-bold tracking-tight">Settings</h1>
       </header>
 
       <div className="space-y-6">
@@ -125,27 +131,7 @@ export function Settings() {
         </Card>
 
         {/* Lift Records */}
-        <Card
-          className="cursor-pointer hover:border-primary transition-colors"
-          onClick={() => navigate('/lift-records')}
-        >
-          <CardContent className="py-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <span className="text-2xl">🏆</span>
-                <div>
-                  <p className="font-medium">Lift Records</p>
-                  <p className="text-xs text-muted-foreground">
-                    Track your personal records
-                  </p>
-                </div>
-              </div>
-              <svg className="w-5 h-5 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-              </svg>
-            </div>
-          </CardContent>
-        </Card>
+
 
         {/* Training Preferences */}
         <Card>

@@ -8,7 +8,7 @@ export interface BadgeProps extends HTMLAttributes<HTMLSpanElement> {
 function Badge({ className, variant = 'default', ...props }: BadgeProps) {
   const variants = {
     default: 'bg-primary text-primary-foreground',
-    secondary: 'bg-secondary text-secondary-foreground',
+    secondary: 'glass-soft text-foreground/80',
     success: 'bg-success text-white',
     warning: 'bg-warning text-black',
     destructive: 'bg-destructive text-destructive-foreground',

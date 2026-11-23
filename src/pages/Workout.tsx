@@ -27,7 +27,7 @@ import { getWarmupDrills, getCooldownStretches, type MobilityDrill } from '@/lib
 import { readinessDisplay, type ReadinessResult } from '@/lib/readiness'
 import { triggerHaptic, playChime } from '@/lib/feedback'
 import { requestCatoSync } from '@/lib/catoSync'
-import { Button, Badge, Sheet } from '@/components/ui'
+import { Button, Sheet } from '@/components/ui'
 import { CheckInForm } from '@/components/CheckInForm'
 import {
   cn,
@@ -234,7 +234,7 @@ export function Workout() {
   const handleExit = () => setShowExitConfirm(true)
 
   return (
-    <div className="min-h-screen bg-background pb-8">
+    <div className="min-h-screen pb-8">
       {/* Exit confirmation overlay */}
       {showExitConfirm && (
         <div
@@ -268,80 +268,33 @@ export function Workout() {
         </div>
       )}
 
-      {/* Sticky Header */}
-      <div className="sticky top-0 z-20 bg-background/95 backdrop-blur-xl border-b border-border/30 px-4 py-3">
-        <div className="flex items-center justify-between mb-3">
-          <button
-            onClick={handleExit}
-            className="w-9 h-9 rounded-xl bg-secondary flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors"
-            aria-label="Exit workout"
-          >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-              <path d="M18 6 6 18M6 6l12 12" />
-            </svg>
-          </button>
-
-          <div className="text-center min-w-0 px-2 flex-1">
-            <p className="text-xs font-semibold text-muted-foreground truncate">{workoutData.name}</p>
-            <p className="text-sm font-bold">
-              Block {currentBlockIndex + 1} / {totalBlocks}
-            </p>
-          </div>
-
+      {/* Floating header */}
+      <div className="sticky top-0 z-20 px-3 pt-[max(10px,env(safe-area-inset-top))] pb-2">
+        <div className="glass-bar rounded-[28px] px-2 py-2">
           <div className="flex items-center gap-2">
-            {/* Edit workout (mid-session adjustments) */}
-            <button
-              onClick={() => navigate(`/plan/${workoutData.id}`)}
-              className="w-9 h-9 rounded-xl bg-secondary flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors"
-              aria-label="Edit workout"
-              title="Add/remove exercises or adjust sets"
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-              </svg>
-            </button>
-
-            {/* Elapsed session clock */}
-            <ElapsedClock startedAt={workoutData.startedAt} />
-
-            {/* Set counter */}
-            <div className="flex items-center gap-1 bg-secondary/60 px-3 py-1.5 rounded-full">
-              <span className="text-sm font-bold text-foreground">{totalSetsCompleted}</span>
-              <span className="text-xs text-muted-foreground">/{totalSets}</span>
+            <HeaderButton label="Exit workout" onClick={handleExit}>
+              <path d="M18 6 6 18M6 6l12 12" />
+            </HeaderButton>
+            <div className="min-w-0 flex-1">
+              <p className="text-[15px] font-semibold leading-tight truncate">{workoutData.name.replace(/\s*[·•-]\s*W(?:ee)?k\s*\d+\s*$/i, '')}</p>
+              <p className="text-xs tabular-nums text-muted-foreground">
+                {totalSetsCompleted} of {totalSets} sets
+                {totalBlocks > 1 && ` · Block ${currentBlockIndex + 1} of ${totalBlocks}`}
+              </p>
             </div>
+            <ElapsedClock startedAt={workoutData.startedAt} />
+            <HeaderButton label="Edit workout" onClick={() => navigate(`/plan/${workoutData.id}`)}>
+              <path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4 12.5-12.5z" />
+            </HeaderButton>
           </div>
-        </div>
-
-        {/* Progress bar */}
-        <div className="relative h-1.5 bg-secondary rounded-full overflow-hidden">
-          <div
-            className={cn(
-              'h-full rounded-full transition-all duration-500',
-              progress === 100 ? 'bg-foreground' : 'bg-foreground/80'
-            )}
-            style={{ width: `${Math.max(progress, totalSets > 0 ? (totalSetsCompleted / totalSets) * 100 : 0)}%` }}
-          />
-          {totalSetsCompleted > 0 && totalSetsCompleted < totalSets && (
-            <div className="absolute inset-0 progress-shimmer" />
-          )}
+          <div className="mx-2 mt-2 mb-0.5 h-1 rounded-full bg-white/[0.08] overflow-hidden">
+            <div
+              className="h-full rounded-full bg-white transition-all duration-500"
+              style={{ width: `${Math.max(progress, totalSets > 0 ? (totalSetsCompleted / totalSets) * 100 : 0)}%` }}
+            />
+          </div>
         </div>
       </div>
-
-      {/* Sets crushed banner */}
-      {totalSetsCompleted > 0 && (
-        <div className="px-4 pt-3 animate-slide-up">
-          <div className="bg-primary/15 border border-primary/25 rounded-xl px-4 py-2.5 flex items-center gap-2">
-            <span className="text-lg">💪</span>
-            <span className="text-sm font-bold text-primary">
-              {totalSetsCompleted} set{totalSetsCompleted !== 1 ? 's' : ''} crushed!
-            </span>
-            <span className="ml-auto text-xs text-primary/70 font-medium">
-              {totalSets - totalSetsCompleted > 0 ? `${totalSets - totalSetsCompleted} to go` : 'All done!'}
-            </span>
-          </div>
-        </div>
-      )}
 
       {/* Readiness banner — local, no API. Adjusts prefilled loads. */}
       <ReadinessBanner readiness={readiness} onLogCheckIn={() => navigate('/check-in')} />
@@ -351,34 +304,20 @@ export function Workout() {
         {/* Dynamic warmup — movement prep matched to today's muscles */}
         {currentBlockIndex === 0 && <WarmupSection workout={workoutData} />}
 
-        <div className="rounded-2xl bg-card border border-border/50 shadow-card overflow-hidden mb-4">
-          {/* Block header */}
-          <div className="px-4 pt-4 pb-3 border-b border-border/40 bg-secondary/20">
-            <div className="flex items-center justify-between">
-              <div className="flex-1 min-w-0 mr-3">
-                <Badge
-                  className={cn('mb-2 text-xs font-bold uppercase tracking-wider', BLOCK_CONFIG[currentBlock.type as BlockType]?.color)}
-                  variant="outline"
-                >
-                  {BLOCK_CONFIG[currentBlock.type as BlockType]?.label || currentBlock.type}
-                </Badge>
-                <h2 className="text-base font-black text-foreground leading-tight">
-                  {currentBlock.intent || BLOCK_CONFIG[currentBlock.type as BlockType]?.description}
-                </h2>
-              </div>
-              <div className="flex flex-col items-end gap-1 shrink-0">
-                <span className="text-xs font-bold text-muted-foreground bg-secondary px-2 py-1 rounded-lg">
-                  ~{currentBlock.timeTarget}m
-                </span>
-                <span className="text-[10px] font-semibold text-muted-foreground">
-                  {currentBlockSetsCompleted}/{currentBlockTotalSets} sets
-                </span>
-              </div>
+        <div className="mb-4">
+          {(totalBlocks > 1 || currentBlock.intent) && (
+            <div className="flex items-baseline justify-between px-2 mb-2">
+              <p className="eyebrow">
+                {currentBlock.intent || BLOCK_CONFIG[currentBlock.type as BlockType]?.label || currentBlock.type}
+              </p>
+              <span className="text-xs tabular-nums text-muted-foreground">
+                {currentBlockSetsCompleted}/{currentBlockTotalSets}
+              </span>
             </div>
-          </div>
+          )}
 
           {/* Exercises (with superset visual grouping) */}
-          <div className="p-4">
+          <div>
             {currentBlock.exercises.length > 0 ? (
               <div className="space-y-3">
                 {groupExercisesBySuperset(currentBlock.exercises).map((g) => {
@@ -398,15 +337,12 @@ export function Workout() {
                     )
                   }
                   return (
-                    <div key={g.groupId} className="rounded-2xl bg-foreground/[0.04] border border-foreground/15 p-2 space-y-2">
-                      <div className="flex items-center gap-2 px-2 pt-1.5">
-                        <span className="text-[10px] uppercase tracking-widest font-semibold text-foreground/70">
-                          Superset · {g.members.length} exercises
-                        </span>
-                        <span className="text-[10px] text-muted-foreground">
-                          Alternate sets
-                        </span>
+                    <div key={g.groupId} className="glass rounded-3xl overflow-hidden">
+                      <div className="flex items-center gap-2 px-4 pt-3.5 pb-1">
+                        <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 text-muted-foreground" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71" /><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71" /></svg>
+                        <span className="eyebrow">Superset</span>
                       </div>
+                      <div className="divide-y divide-white/[0.06]">
                       {g.members.map((m) => (
                         <ExerciseBlock
                           key={m.id}
@@ -418,15 +354,17 @@ export function Workout() {
                           onToggleExpand={() => toggleExpand(m.id)}
                           onSetCompleted={handleSetCompleted}
                           weightUnit={weightUnit}
+                          inGroup
                         />
                       ))}
+                      </div>
                     </div>
                   )
                 })}
               </div>
             ) : (
-              <div className="py-8 text-center">
-                <p className="text-muted-foreground text-sm">{getBlockInstructions(currentBlock.type as BlockType)}</p>
+              <div className="glass rounded-3xl py-8 text-center">
+                <p className="text-muted-foreground text-sm">No exercises</p>
               </div>
             )}
           </div>
@@ -436,25 +374,16 @@ export function Workout() {
         <Button
           className={cn(
             'w-full transition-all text-base',
-            isCurrentBlockComplete
-              ? 'bg-foreground text-background hover:bg-foreground/90 border-0'
-              : ''
+            !isCurrentBlockComplete && 'bg-white/[0.12] text-foreground shadow-none hover:bg-white/[0.16]'
           )}
           size="lg"
           onClick={handleBlockComplete}
         >
-          {currentBlockIndex < totalBlocks - 1
-            ? isCurrentBlockComplete
-              ? <span className="flex items-center gap-2">🎯 Block Done — Next!</span>
-              : 'Complete Block'
-            : isCurrentBlockComplete
-              ? <span className="flex items-center gap-2">🏆 Finish Workout!</span>
-              : 'Finish & Reflect'
-          }
+          {currentBlockIndex < totalBlocks - 1 ? 'Next block' : 'Finish'}
         </Button>
 
         {/* Block dot navigation */}
-        <div className="flex justify-center gap-2 mt-5">
+        {totalBlocks > 1 && <div className="flex justify-center gap-2 mt-5">
           {workoutData.blocks.map((block, index) => (
             <button
               key={block.id}
@@ -469,7 +398,7 @@ export function Workout() {
               )}
             />
           ))}
-        </div>
+        </div>}
       </div>
 
       {/* Rest timer — floats above content while a set rests */}
@@ -538,12 +467,12 @@ function RestTimer({
   return (
     <div className="fixed inset-x-0 bottom-4 z-40 px-4 pointer-events-none">
       <div className={cn(
-        'pointer-events-auto max-w-lg mx-auto rounded-2xl border shadow-2xl backdrop-blur-xl px-3 py-2.5 flex items-center gap-3',
-        done ? 'bg-success/20 border-success/40' : 'bg-card/95 border-border/60'
+        'pointer-events-auto max-w-lg mx-auto rounded-full glass-bar pl-2 pr-2 py-2 flex items-center gap-2',
+        done && 'ring-1 ring-emerald-400/50'
       )}>
         <button
           onClick={() => onAdjust(-15)}
-          className="h-9 w-9 shrink-0 rounded-lg bg-secondary/80 text-foreground font-semibold text-xs hover:bg-secondary transition-colors"
+          className="h-10 w-10 shrink-0 rounded-full glass-soft text-foreground font-semibold text-xs tabular-nums active:scale-95 transition-transform"
           aria-label="Subtract 15 seconds"
         >
           −15
@@ -551,14 +480,14 @@ function RestTimer({
 
         <div className="flex-1 min-w-0">
           <div className="flex items-baseline justify-between">
-            <span className="text-[10px] uppercase tracking-widest font-semibold text-muted-foreground">
+            <span className="text-xs font-medium text-muted-foreground">
               {done ? 'Rest done' : 'Rest'}
             </span>
-            <span className={cn('text-lg font-bold tabular-nums leading-none', !done && remaining <= 3 && 'animate-pulse')}>{label}</span>
+            <span className={cn('text-lg font-semibold tabular-nums leading-none', !done && remaining <= 3 && 'animate-pulse')}>{label}</span>
           </div>
-          <div className="mt-1.5 h-1.5 rounded-full bg-secondary overflow-hidden">
+          <div className="mt-1.5 h-1 rounded-full bg-white/[0.08] overflow-hidden">
             <div
-              className={cn('h-full rounded-full transition-all duration-200', done ? 'bg-success' : 'bg-primary')}
+              className={cn('h-full rounded-full transition-all duration-200', done ? 'bg-emerald-400' : 'bg-white')}
               style={{ width: `${done ? 100 : pct}%` }}
             />
           </div>
@@ -566,7 +495,7 @@ function RestTimer({
 
         <button
           onClick={() => onAdjust(15)}
-          className="h-9 w-9 shrink-0 rounded-lg bg-secondary/80 text-foreground font-semibold text-xs hover:bg-secondary transition-colors"
+          className="h-10 w-10 shrink-0 rounded-full glass-soft text-foreground font-semibold text-xs tabular-nums active:scale-95 transition-transform"
           aria-label="Add 15 seconds"
         >
           +15
@@ -574,8 +503,8 @@ function RestTimer({
         <button
           onClick={onDismiss}
           className={cn(
-            'h-9 px-3 shrink-0 rounded-lg font-semibold text-xs transition-colors',
-            done ? 'bg-success text-background' : 'bg-foreground text-background hover:bg-foreground/90'
+            'h-10 px-4 shrink-0 rounded-full font-semibold text-sm transition-colors',
+            done ? 'bg-emerald-400 text-black' : 'bg-white text-black'
           )}
           aria-label="Dismiss rest timer"
         >
@@ -610,16 +539,9 @@ function ElapsedClock({ startedAt }: { startedAt?: Date | null }) {
   const elapsed = now - new Date(startedAt).getTime()
 
   return (
-    <div
-      className="flex items-center gap-1.5 bg-secondary/60 px-3 py-1.5 rounded-full"
-      aria-label="Elapsed workout time"
-    >
-      <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 text-muted-foreground" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-        <circle cx="12" cy="12" r="9" />
-        <path d="M12 7v5l3 2" />
-      </svg>
-      <span className="text-sm font-bold text-foreground tabular-nums">{formatElapsed(elapsed)}</span>
-    </div>
+    <span className="px-1 text-[15px] font-semibold text-foreground tabular-nums" aria-label="Elapsed workout time">
+      {formatElapsed(elapsed)}
+    </span>
   )
 }
 
@@ -640,15 +562,13 @@ function ReadinessBanner({
   // No check-in today — nudge to log one, non-blocking.
   if (readiness === null) {
     return (
-      <div className="px-4 pt-3">
+      <div className="px-4 pt-1">
         <button
           onClick={onLogCheckIn}
-          className="w-full flex items-center gap-2.5 rounded-xl bg-secondary/50 border border-border/40 px-4 py-2.5 text-left hover:bg-secondary/70 transition-colors"
+          className="w-full flex items-center gap-3 rounded-full glass-soft pl-4 pr-3 h-11 text-left active:scale-[0.99] transition-transform"
         >
-          <span className="text-lg">🧭</span>
-          <span className="text-sm text-muted-foreground flex-1">
-            Log a quick check-in for readiness-based weights
-          </span>
+          <span className="h-2 w-2 rounded-full bg-white/30" aria-hidden />
+          <span className="text-sm text-foreground/85 flex-1">Check in to adjust weights</span>
           <svg viewBox="0 0 24 24" className="h-4 w-4 text-muted-foreground shrink-0" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M9 18l6-6-6-6" /></svg>
         </button>
       </div>
@@ -656,21 +576,22 @@ function ReadinessBanner({
   }
 
   const { label, tone } = readinessDisplay(readiness.recommendation)
-  const toneClasses: Record<typeof tone, string> = {
-    good: 'bg-success/15 border-success/25 text-success',
-    neutral: 'bg-primary/15 border-primary/25 text-primary',
-    warn: 'bg-rpe-high/15 border-rpe-high/30 text-rpe-high',
-    bad: 'bg-destructive/15 border-destructive/30 text-destructive',
+  const dot: Record<typeof tone, string> = {
+    good: 'bg-emerald-400',
+    neutral: 'bg-sky-400',
+    warn: 'bg-amber-400',
+    bad: 'bg-red-400',
   }
 
   return (
-    <div className="px-4 pt-3 animate-slide-up">
-      <div className={cn('rounded-xl border px-4 py-2.5', toneClasses[tone])}>
+    <div className="px-4 pt-1">
+      <div className="glass-soft rounded-2xl px-4 py-2.5">
         <div className="flex items-center gap-2">
-          <span className="text-sm font-bold">Readiness {readiness.overallScore}</span>
-          <span className="text-xs font-semibold uppercase tracking-wider opacity-80">· {label}</span>
+          <span className={cn('h-2 w-2 rounded-full', dot[tone])} aria-hidden />
+          <span className="text-sm font-semibold tabular-nums">Readiness {readiness.overallScore}</span>
+          <span className="text-sm text-muted-foreground">· {label}</span>
         </div>
-        <p className="text-xs mt-0.5 text-foreground/70">{readiness.reasoning}</p>
+        <p className="text-xs mt-0.5 text-muted-foreground">{readiness.reasoning}</p>
       </div>
     </div>
   )
@@ -689,6 +610,7 @@ function ExerciseBlock({
   onToggleExpand,
   onSetCompleted,
   weightUnit,
+  inGroup,
 }: {
   exerciseInstance: {
     id: string
@@ -708,6 +630,8 @@ function ExerciseBlock({
   /** Fired when a set is newly checked complete (drives rest timer + haptics). */
   onSetCompleted: () => void
   weightUnit: 'lbs' | 'kg'
+  /** Inside a superset the group draws the glass. */
+  inGroup?: boolean
 }) {
   const inputKind = getExerciseInputKind(exerciseInstance.exercise)
   const isCardio = inputKind === 'cardio'
@@ -767,27 +691,27 @@ function ExerciseBlock({
       layout
       transition={{ layout: { duration: 0.22, ease: [0.4, 0, 0.2, 1] } }}
       className={cn(
-        'rounded-2xl bg-card border overflow-hidden',
-        allDone ? 'border-foreground/30' : 'border-border/40',
-        isExpanded && 'shadow-card'
+        'overflow-hidden',
+        !inGroup && 'glass rounded-3xl',
+        allDone && !isExpanded && 'opacity-70'
       )}
     >
       {/* Header — tap to toggle */}
       <button
         type="button"
         onClick={onToggleExpand}
-        className="w-full flex items-center justify-between gap-3 px-4 py-3.5 text-left hover:bg-secondary/30 transition-colors"
+        className="w-full flex items-center justify-between gap-3 px-4 py-3.5 text-left active:bg-white/[0.04] transition-colors"
       >
         <div className="flex items-center gap-2 min-w-0 flex-1">
           {allDone && (
-            <span className="h-6 w-6 rounded-full bg-foreground text-background flex items-center justify-center shrink-0">
+            <span className="h-6 w-6 rounded-full bg-emerald-400 text-black flex items-center justify-center shrink-0">
               <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round">
                 <polyline points="20 6 9 17 4 12" />
               </svg>
             </span>
           )}
           <div className="min-w-0">
-            <h4 className="font-semibold text-base text-foreground truncate">
+            <h4 className="font-semibold text-[16px] tracking-tight text-foreground truncate">
               {exerciseInstance.exercise?.name || 'Exercise'}
             </h4>
             <p className="text-xs text-muted-foreground truncate mt-0.5">
@@ -850,12 +774,12 @@ function ExerciseBlock({
             transition={{ duration: 0.22, ease: [0.4, 0, 0.2, 1] }}
             className="overflow-hidden"
           >
-            <div className="px-4 pb-4 pt-1 border-t border-border/30">
+            <div className="px-3 pb-3 pt-0.5">
               {/* Last session — every working set from the most recent earlier
                   session of this exercise, so you can match or beat it set by set.
                   Today's targets below are pre-filled from it with progression. */}
               {lastSession && lastSession.sets.length > 0 && (
-                <div className="mt-3 rounded-lg bg-secondary/40 px-3 py-2 text-xs text-muted-foreground">
+                <div className="mt-1 glass-soft rounded-2xl px-3 py-2 text-xs text-muted-foreground">
                   <div className="flex items-center gap-1.5 mb-1">
                     <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 shrink-0" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
                       <path d="M3 3v5h5" />
@@ -888,15 +812,15 @@ function ExerciseBlock({
               )}
 
               {/* Column labels — cardio swaps Weight/Reps/RPE for Time/Distance/RPE */}
-              <div className="grid grid-cols-[2.5rem_1fr_1fr_1fr_2.75rem] gap-2 px-2 pb-2 pt-3 text-[10px] uppercase tracking-widest font-semibold text-muted-foreground">
+              <div className="grid grid-cols-[2.5rem_1fr_1fr_1fr_2.75rem] gap-2 px-1.5 pb-1.5 pt-3 text-[11px] font-medium text-center text-muted-foreground">
                 <span>{isCardio ? '#' : 'Set'}</span>
-                <span>{isCardio ? 'Time (m)' : 'Weight'}</span>
-                <span>{isCardio ? `Dist (${distanceUnit})` : 'Reps'}</span>
+                <span>{isCardio ? 'Min' : weightUnit === 'lbs' ? 'lb' : 'kg'}</span>
+                <span>{isCardio ? distanceUnit : 'Reps'}</span>
                 <span>RPE</span>
                 <span />
               </div>
 
-              <div className="flex flex-col gap-1.5">
+              <div className="flex flex-col gap-1">
                 {exerciseInstance.sets.map((set, idx) => (
                   <SetEditableRow
                     key={set.id}
@@ -913,7 +837,7 @@ function ExerciseBlock({
               <div className="mt-3 flex gap-2">
                 <button
                   onClick={() => appendSetToExercise(exerciseInstance.id)}
-                  className="flex-1 flex items-center justify-center gap-2 h-10 rounded-xl border-2 border-dashed border-border/60 text-xs font-medium text-muted-foreground hover:text-foreground hover:border-foreground/30 hover:bg-secondary/30 transition-colors active:scale-[0.985]"
+                  className="flex-1 flex items-center justify-center gap-2 h-10 rounded-full glass-soft text-[13px] font-medium text-foreground/80 hover:text-foreground transition-colors active:scale-[0.985]"
                 >
                   <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
                   {isCardio ? 'Add session' : 'Add set'}
@@ -922,7 +846,7 @@ function ExerciseBlock({
                 {!isCardio && !hasWarmup && workingWeight > 0 && (
                   <button
                     onClick={() => addWarmupSets(exerciseInstance.id, workingWeight, weightUnit)}
-                    className="flex-1 flex items-center justify-center gap-2 h-10 rounded-xl border-2 border-dashed border-border/60 text-xs font-medium text-muted-foreground hover:text-foreground hover:border-foreground/30 hover:bg-secondary/30 transition-colors active:scale-[0.985]"
+                    className="flex-1 flex items-center justify-center gap-2 h-10 rounded-full glass-soft text-[13px] font-medium text-foreground/80 hover:text-foreground transition-colors active:scale-[0.985]"
                   >
                     <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M12 2v6M4.9 7l4.2 2.4M19.1 7l-4.2 2.4M12 22a7 7 0 0 0 7-7 7 7 0 0 0-14 0 7 7 0 0 0 7 7z" /></svg>
                     Add warm-up
@@ -932,15 +856,15 @@ function ExerciseBlock({
 
               <button
                 onClick={() => setHistoryOpen(true)}
-                className="mt-2 w-full flex items-center justify-center gap-2 h-9 rounded-xl text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-secondary/40 transition-colors"
+                className="mt-1.5 w-full flex items-center justify-center gap-2 h-9 rounded-full text-[13px] font-medium text-muted-foreground hover:text-foreground transition-colors"
               >
                 <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M3 3v5h5" /><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8" /><path d="M12 7v5l3 2" /></svg>
-                View history
+                History
               </button>
 
               {exerciseInstance.exercise?.cues && exerciseInstance.exercise.cues.length > 0 && (
-                <p className="text-xs text-muted-foreground mt-3 leading-relaxed">
-                  💡 {exerciseInstance.exercise.cues.join(' · ')}
+                <p className="text-xs text-muted-foreground mt-2 px-1 leading-relaxed">
+                  {exerciseInstance.exercise.cues.join(' · ')}
                 </p>
               )}
             </div>
@@ -1155,8 +1079,8 @@ function SetEditableRow({
   return (
     <div
       className={cn(
-        'grid grid-cols-[2.5rem_1fr_1fr_1fr_2.75rem] gap-2 items-center rounded-xl px-2 py-1.5 transition-colors',
-        isWarmup ? 'bg-rpe-moderate/10' : set.completed ? 'bg-foreground/10' : 'bg-secondary/30'
+        'grid grid-cols-[2.5rem_1fr_1fr_1fr_2.75rem] gap-2 items-center rounded-2xl px-1.5 py-1 transition-colors',
+        set.completed ? 'bg-emerald-400/[0.08]' : isWarmup ? 'bg-amber-300/[0.05]' : ''
       )}
     >
       <span className={cn(
@@ -1225,10 +1149,10 @@ function SetEditableRow({
         animate={set.completed ? { scale: [1, 1.18, 1] } : { scale: 1 }}
         transition={{ duration: 0.28, ease: [0.34, 1.56, 0.64, 1] }}
         className={cn(
-          'h-10 w-10 flex items-center justify-center rounded-lg transition-colors touch-target shrink-0',
+          'h-10 w-10 flex items-center justify-center rounded-full transition-colors touch-target shrink-0',
           set.completed
-            ? 'bg-foreground text-background'
-            : 'bg-secondary/80 text-muted-foreground hover:text-foreground hover:bg-secondary'
+            ? 'bg-emerald-400 text-black'
+            : 'glass-soft text-muted-foreground hover:text-foreground'
         )}
         aria-label={set.completed ? 'Mark set incomplete' : 'Mark set complete'}
       >
@@ -1276,8 +1200,8 @@ function CellInput({
       onBlur={onBlur}
       onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
       className={cn(
-        'h-10 w-full text-center rounded-lg bg-input border border-border/30 px-1 text-base font-semibold tabular-nums',
-        'focus:outline-none focus:ring-2 focus:ring-foreground/30 focus:border-foreground/40 focus:bg-card',
+        'h-10 w-full text-center rounded-xl bg-white/[0.06] border border-white/[0.06] px-1 text-[17px] font-semibold tabular-nums',
+        'focus:outline-none focus:ring-2 focus:ring-white/40 focus:bg-white/[0.1]',
         'placeholder:text-muted-foreground/40 transition-colors',
         completed ? 'text-foreground' : 'text-foreground'
       )}
@@ -1311,14 +1235,14 @@ function DrillRow({
     <button
       onClick={onToggle}
       className={cn(
-        'w-full flex items-start gap-3 rounded-xl px-3 py-2.5 text-left transition-colors',
-        done ? 'bg-foreground/10' : 'bg-secondary/30 hover:bg-secondary/50'
+        'w-full flex items-start gap-3 rounded-2xl px-3 py-2.5 text-left transition-colors',
+        done ? 'bg-white/[0.03]' : 'glass-soft'
       )}
     >
       <span
         className={cn(
           'mt-0.5 h-5 w-5 shrink-0 rounded-full border-2 flex items-center justify-center transition-colors',
-          done ? 'bg-foreground border-foreground text-background' : 'border-muted-foreground/50'
+          done ? 'bg-emerald-400 border-emerald-400 text-black' : 'border-white/30'
         )}
       >
         {done && (
@@ -1369,14 +1293,13 @@ function WarmupSection({ workout }: { workout: MobilityWorkout }) {
   }
 
   return (
-    <div className="rounded-2xl bg-card border border-border/50 overflow-hidden mb-4">
+    <div className="glass rounded-3xl overflow-hidden mb-3">
       <button
         onClick={() => setManualOpen(!isOpen)}
-        className="w-full flex items-center justify-between px-4 py-3 hover:bg-secondary/30 transition-colors"
+        className="w-full flex items-center justify-between px-4 py-3.5 active:bg-white/[0.04] transition-colors"
       >
         <div className="flex items-center gap-2">
-          <span className="text-base">🔥</span>
-          <span className="text-sm font-bold">Warm-up</span>
+          <span className="text-[16px] font-semibold tracking-tight">Warm-up</span>
           <span className={cn('text-xs tabular-nums', allDone ? 'text-foreground' : 'text-muted-foreground')}>
             {doneCount}/{drills.length}
           </span>
@@ -1400,9 +1323,6 @@ function WarmupSection({ workout }: { workout: MobilityWorkout }) {
             className="overflow-hidden"
           >
             <div className="px-3 pb-3 space-y-1.5">
-              <p className="px-1 pb-1 text-xs text-muted-foreground">
-                Movement prep picked for today's muscles. Check them off as you go.
-              </p>
               {drills.map(d => (
                 <DrillRow key={d.id} drill={d} done={done.has(d.id)} onToggle={() => toggleDrill(d.id)} />
               ))}
@@ -1438,18 +1358,15 @@ function CooldownScreen({
   }
 
   return (
-    <div className="min-h-screen bg-background pb-32">
+    <div className="min-h-screen pb-32">
       <header className="px-5 pt-12 pb-6">
-        <p className="text-[10px] uppercase tracking-widest text-muted-foreground">Session complete</p>
-        <h1 className="text-2xl font-bold tracking-tight mt-1">Cool down 🧊</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Stretch what you trained — then log your check-in.
-        </p>
+        <p className="eyebrow">Session complete</p>
+        <h1 className="text-[30px] font-bold tracking-tight mt-1">Cool down</h1>
       </header>
 
       <div className="px-5 space-y-1.5">
         <div className="flex items-baseline justify-between px-1 pb-1">
-          <span className="text-xs uppercase tracking-widest font-semibold text-muted-foreground">Suggested stretches</span>
+          <span className="eyebrow">Stretches</span>
           <span className="text-xs text-muted-foreground tabular-nums">{doneCount}/{stretches.length}</span>
         </div>
         {stretches.map(d => (
@@ -1458,13 +1375,13 @@ function CooldownScreen({
       </div>
 
       {/* Sticky action bar */}
-      <div className="fixed bottom-0 inset-x-0 z-40 bg-background/90 backdrop-blur-xl border-t border-border/40 safe-area-bottom">
-        <div className="max-w-lg mx-auto px-5 py-3 flex gap-2">
+      <div className="fixed bottom-0 inset-x-0 z-40 px-4 pb-[max(12px,env(safe-area-inset-bottom))]">
+        <div className="max-w-lg mx-auto glass-bar rounded-full p-1.5 flex gap-1.5">
           <Button variant="ghost" onClick={onContinue} className="flex-1">
             Skip
           </Button>
           <Button onClick={onContinue} className="flex-[2]">
-            Continue to check-in
+            Check-in
           </Button>
         </div>
       </div>
@@ -1539,7 +1456,7 @@ function ReflectionForm({
   const dateLabel = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
 
   return (
-    <div className="min-h-screen bg-background pb-32">
+    <div className="min-h-screen pb-32">
       <header className="px-5 pt-12 pb-6">
         <p className="text-[10px] uppercase tracking-widest text-muted-foreground">{dateLabel}</p>
         <h1 className="text-2xl font-bold tracking-tight mt-1">Check-in</h1>
@@ -1553,8 +1470,8 @@ function ReflectionForm({
           onSubmitted={handleSubmitted}
           renderActions={({ submit, isSaving }) => (
             /* Sticky action bar */
-            <div className="fixed bottom-0 inset-x-0 z-40 bg-background/90 backdrop-blur-xl border-t border-border/40 safe-area-bottom">
-              <div className="max-w-lg mx-auto px-5 py-3 flex gap-2">
+            <div className="fixed bottom-0 inset-x-0 z-40 px-4 pb-[max(12px,env(safe-area-inset-bottom))]">
+              <div className="max-w-lg mx-auto glass-bar rounded-full p-1.5 flex gap-1.5">
                 <Button
                   variant="ghost"
                   onClick={async () => {
@@ -1571,7 +1488,7 @@ function ReflectionForm({
                   Skip
                 </Button>
                 <Button onClick={submit} loading={isSaving} className="flex-[2]">
-                  Save & finish
+                  Finish
                 </Button>
               </div>
             </div>
@@ -1596,7 +1513,7 @@ function CelebrationScreen({
   onContinue: () => void
 }) {
   return (
-    <div className="min-h-screen bg-background flex flex-col safe-area-inset">
+    <div className="min-h-screen flex flex-col safe-area-inset">
       <main className="flex-1 flex flex-col items-center justify-center px-6 max-w-md mx-auto w-full text-center">
         {/* Hero — checkmark glyph, scales in, with a small particle burst */}
         <div className="relative mb-6">
@@ -1655,11 +1572,11 @@ function CelebrationScreen({
           transition={{ delay: 0.28, duration: 0.3 }}
           className="w-full grid grid-cols-2 gap-3 mb-6"
         >
-          <div className="rounded-2xl bg-card border border-border/40 p-4 text-left">
+          <div className="glass rounded-3xl p-4 text-left">
             <p className="text-[10px] uppercase tracking-widest text-muted-foreground">Streak</p>
             <p className="text-3xl font-bold tabular-nums mt-1">{streak}<span className="text-sm text-muted-foreground font-normal ml-1">days</span></p>
           </div>
-          <div className="rounded-2xl bg-card border border-border/40 p-4 text-left">
+          <div className="glass rounded-3xl p-4 text-left">
             <p className="text-[10px] uppercase tracking-widest text-muted-foreground">Total</p>
             <p className="text-3xl font-bold tabular-nums mt-1">{totalWorkouts}<span className="text-sm text-muted-foreground font-normal ml-1">workouts</span></p>
           </div>
@@ -1679,7 +1596,7 @@ function CelebrationScreen({
                 const a = ACHIEVEMENTS[id]
                 if (!a) return null
                 return (
-                  <div key={id} className="rounded-xl border border-border/40 bg-card p-3 flex items-center gap-3 text-left">
+                  <div key={id} className="glass-soft rounded-2xl p-3 flex items-center gap-3 text-left">
                     <span className="text-2xl">{a.icon}</span>
                     <div className="min-w-0">
                       <p className="font-semibold text-sm truncate">{a.name}</p>
@@ -1750,7 +1667,7 @@ function WorkoutSummary({
   )
 
   return (
-    <div className="min-h-screen bg-background pb-8">
+    <div className="min-h-screen pb-8">
       <header className="px-5 pt-12 pb-5 flex items-start gap-3">
         <button onClick={onBack} className="h-9 w-9 flex items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors -ml-1" aria-label="Back">
           <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M15 18l-6-6 6-6" /></svg>
@@ -1768,18 +1685,18 @@ function WorkoutSummary({
         {completedDate && (
           <div className="flex gap-3">
             {totalSets > 0 && (
-              <div className="flex-1 rounded-2xl bg-card border border-border/40 p-4">
+              <div className="flex-1 glass rounded-3xl p-4">
                 <p className="text-[10px] uppercase tracking-widest text-muted-foreground">Sets</p>
                 <p className="text-2xl font-bold tabular-nums mt-1">{totalSets}</p>
               </div>
             )}
             {workout.totalDuration && workout.totalDuration > 0 && (
-              <div className="flex-1 rounded-2xl bg-card border border-border/40 p-4">
+              <div className="flex-1 glass rounded-3xl p-4">
                 <p className="text-[10px] uppercase tracking-widest text-muted-foreground">Time</p>
                 <p className="text-2xl font-bold tabular-nums mt-1">{workout.totalDuration}<span className="text-sm text-muted-foreground font-normal ml-1">min</span></p>
               </div>
             )}
-            <div className="flex-1 rounded-2xl bg-card border border-border/40 p-4">
+            <div className="flex-1 glass rounded-3xl p-4">
               <p className="text-[10px] uppercase tracking-widest text-muted-foreground">At</p>
               <p className="text-2xl font-bold tabular-nums mt-1">
                 {completedDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
@@ -1895,13 +1812,6 @@ function WorkoutSummary({
 }
 
 
-function getBlockInstructions(blockType: BlockType): string {
-  switch (blockType) {
-    case 'warmup': return 'Complete your warmup: foam rolling, dynamic stretches, and movement prep.'
-    case 'cooldown': return 'Cool down with static stretching and breathing. Take your time.'
-    default: return 'Complete the exercises in this block, then tap complete.'
-  }
-}
 
 // Group consecutive exercises sharing a supersetGroupId, matching the planner.
 type ExecExercise = { id: string; exerciseId: string; exercise?: { name: string; cues: string[] }; sets: SetInstance[]; notes: string; supersetGroupId?: string | null }
@@ -1929,4 +1839,16 @@ function groupExercisesBySuperset(exercises: ExecExercise[]): ExecGroup[] {
     else out.push({ kind: 'group', groupId, members })
   }
   return out
+}
+
+function HeaderButton({ label, onClick, children }: { label: string; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      onClick={onClick}
+      aria-label={label}
+      className="h-10 w-10 shrink-0 rounded-full flex items-center justify-center text-foreground/80 hover:bg-white/[0.07] active:bg-white/10 transition-colors"
+    >
+      <svg viewBox="0 0 24 24" className="h-[18px] w-[18px]" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">{children}</svg>
+    </button>
+  )
 }

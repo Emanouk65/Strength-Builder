@@ -65,15 +65,14 @@ export function Sheet({ open, onClose, title, children, className, noDrag, noPad
       {open && (
         <>
           <motion.div
-            className="fixed inset-0 z-[60] bg-black/60 backdrop-blur-sm"
+            className="fixed inset-0 z-[60] bg-black/50"
             onClick={onClose}
             {...overlayMotion}
           />
           <motion.div
             className={cn(
               'fixed inset-x-0 bottom-0 z-[70] overflow-hidden',
-              'rounded-t-3xl border-t border-border/60 bg-card',
-              'shadow-[0_-12px_40px_rgba(0,0,0,0.55)]',
+              'rounded-t-4xl glass-bar border-b-0',
               'safe-area-bottom',
               // Fallback height when the visualViewport API isn't available
               // (most desktop browsers). Inline maxHeight overrides this when set.
@@ -89,14 +88,14 @@ export function Sheet({ open, onClose, title, children, className, noDrag, noPad
               if (info.offset.y > 120 || info.velocity.y > 500) onClose()
             }}
           >
-            <div className="mx-auto mt-2 mb-1 h-1 w-10 rounded-full bg-border" />
+            <div className="mx-auto mt-2 mb-1 h-1 w-9 rounded-full bg-white/25" />
             {noPadding ? (
               children
             ) : (
               <>
                 {title && (
                   <div className="px-5 pt-3 pb-2">
-                    <h2 className="text-base font-semibold text-foreground">{title}</h2>
+                    <h2 className="text-lg font-semibold tracking-tight text-foreground">{title}</h2>
                   </div>
                 )}
                 <div

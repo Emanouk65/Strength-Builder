@@ -53,6 +53,9 @@ export function Plan() {
   const [discardConfirm, setDiscardConfirm] = useState(false)
   const [templatesOpen, setTemplatesOpen] = useState(false)
   const [templateFlash, setTemplateFlash] = useState(false)
+  // One exercise open at a time; the rest stay as one-line summaries.
+  const [expandedId, setExpandedId] = useState<string | null>(null)
+  const toggle = useCallback((id: string) => setExpandedId(cur => (cur === id ? null : id)), [])
   const initRef = useRef(false)
 
   const templates = useLiveQuery(() => getWorkoutTemplates(), [])
@@ -222,7 +225,8 @@ export function Plan() {
   const handleAddExercise = useCallback(async (ex: Exercise) => {
     if (!workoutId) return
     justAddedRef.current = true
-    await addExerciseToDraft(workoutId, ex.id, { sets: 3 })
+    const id = await addExerciseToDraft(workoutId, ex.id, { sets: 3 })
+    setExpandedId(id)
   }, [workoutId])
 
   const handleSetCountChange = useCallback(async (instanceId: string, newCount: number) => {
@@ -334,7 +338,7 @@ export function Plan() {
 
   if (dataLoading) {
     return (
-      <div className="flex h-screen items-center justify-center bg-background">
+      <div className="flex h-screen items-center justify-center">
         <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
       </div>
     )
@@ -342,204 +346,158 @@ export function Plan() {
 
   const isEmpty = instances.length === 0
   const isDraft = workout.status === 'draft'
+  const totalSets = (sets ?? []).length
+  const statusLabel =
+    workout.status === 'planned' ? 'Scheduled' : workout.status === 'in_progress' ? 'In progress' : null
+
+  const renderCard = (inst: ExerciseInstance, inSuperset: boolean, groupSize = 0) => {
+    const ex = exerciseMap.get(inst.exerciseId)
+    if (!ex) return null
+    const idx = instances.findIndex(i => i.id === inst.id)
+    const hasNext = idx >= 0 && idx < instances.length - 1
+    return (
+      <PlannedExerciseCard
+        key={inst.id}
+        exercise={ex}
+        instanceId={inst.id}
+        sets={setsByInstance.get(inst.id) ?? []}
+        weightUnit={user.preferences.weightUnit}
+        expanded={expandedId === inst.id}
+        onToggle={() => toggle(inst.id)}
+        onSetCountChange={(c) => handleSetCountChange(inst.id, c)}
+        onSetPatch={handleSetPatch}
+        onRemove={() => handleRemoveExercise(inst.id)}
+        onMoveUp={idx > 0 ? () => handleMove(inst.id, -1) : undefined}
+        onMoveDown={hasNext ? () => handleMove(inst.id, 1) : undefined}
+        onLinkNext={hasNext && (!inSuperset || groupSize < SUPERSET_MAX_MEMBERS) ? () => handleLinkNext(inst.id) : undefined}
+        onUnlink={inSuperset ? () => handleUnlink(inst.id) : undefined}
+        inSuperset={inSuperset}
+      />
+    )
+  }
 
   return (
-    <div className="min-h-screen bg-background pb-32">
+    <div className="min-h-screen pb-36">
       {/* Header */}
-      <header className="sticky top-0 z-40 bg-background/85 backdrop-blur-xl border-b border-border/40 safe-area-bottom">
-        <div className="max-w-lg mx-auto px-4 py-3 flex items-center gap-3">
-          <button
-            onClick={() => navigate('/')}
-            className="h-9 w-9 flex items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors"
-            aria-label="Back"
-          >
-            <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M15 18l-6-6 6-6" /></svg>
-          </button>
-          <div className="flex-1 min-w-0">
-            <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
-              {isDraft ? 'Drafting' : workout.status === 'planned' ? 'Scheduled' : workout.status === 'in_progress' ? 'Editing — workout in progress' : 'Editing'}
-            </div>
+      <header className="sticky top-0 z-40 px-3 pt-[max(env(safe-area-inset-top),0.75rem)] pb-2">
+        <div className="max-w-lg mx-auto glass-bar rounded-full pl-1.5 pr-1.5 py-1.5 flex items-center gap-1">
+          <IconButton label="Back" onClick={() => navigate('/')}>
+            <path d="M15 18l-6-6 6-6" />
+          </IconButton>
+          <div className="flex-1 min-w-0 px-1">
             <input
               type="text"
               value={localName}
               onChange={(e) => onNameChange(e.target.value)}
               placeholder="Untitled workout"
-              className="w-full bg-transparent text-lg font-semibold text-foreground placeholder:text-muted-foreground/60 focus:outline-none"
+              aria-label="Workout name"
+              className="w-full bg-transparent text-[17px] font-semibold tracking-tight text-foreground placeholder:text-muted-foreground focus:outline-none"
             />
+            <p className="text-[11px] text-muted-foreground tabular-nums leading-tight">
+              {statusLabel && <span className="text-foreground/80">{statusLabel} · </span>}
+              {instances.length} {instances.length === 1 ? 'exercise' : 'exercises'} · {totalSets} sets
+            </p>
           </div>
+          <IconButton label="Templates" onClick={() => setTemplatesOpen(true)}>
+            <path d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z" />
+          </IconButton>
           {isDraft && (
-            <button
-              onClick={() => setDiscardConfirm(true)}
-              className="h-9 w-9 flex items-center justify-center rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
-              aria-label="Discard draft"
-            >
-              <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2M6 6l1 14a2 2 0 002 2h6a2 2 0 002-2l1-14" /></svg>
-            </button>
+            <IconButton label="Discard draft" onClick={() => setDiscardConfirm(true)} danger>
+              <path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2M6 6l1 14a2 2 0 002 2h6a2 2 0 002-2l1-14" />
+            </IconButton>
           )}
         </div>
       </header>
 
       {/* Body */}
-      <main className="max-w-lg mx-auto px-4 py-5">
+      <main className="max-w-lg mx-auto px-3 pt-2">
         {isEmpty ? (
           <motion.div
-            // Slide-only entrance — never fade through opacity so the empty
-            // state stays readable even if the parent transition is mid-fade.
             initial={{ y: 12 }}
             animate={{ y: 0 }}
             transition={{ duration: 0.3 }}
-            className="flex flex-col items-center justify-center py-16 text-center"
+            className="glass rounded-4xl mt-6 px-6 py-10 flex flex-col items-center text-center"
           >
-            <div className="h-16 w-16 rounded-2xl bg-secondary/60 flex items-center justify-center mb-4">
-              <svg viewBox="0 0 24 24" className="h-7 w-7 text-muted-foreground" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M5 12h14" /></svg>
+            <div className="h-14 w-14 rounded-full glass-soft flex items-center justify-center mb-4">
+              <svg viewBox="0 0 24 24" className="h-6 w-6 text-foreground/80" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
             </div>
-            <h2 className="text-lg font-semibold text-foreground">Build your workout</h2>
-            <p className="text-sm text-muted-foreground mt-1 max-w-xs">
-              Add exercises one at a time. Everything autosaves — close the app and pick up later.
-            </p>
-            <Button onClick={() => setPickerOpen(true)} className="mt-6">
-              Add first exercise
+            <h2 className="text-xl font-semibold tracking-tight text-foreground">New workout</h2>
+            <Button onClick={() => setPickerOpen(true)} className="mt-6 w-full">
+              Add exercises
             </Button>
             {templates && templates.length > 0 && (
-              <button
-                onClick={() => setTemplatesOpen(true)}
-                className="mt-3 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
-              >
-                or start from a template
-              </button>
+              <Button variant="secondary" onClick={() => setTemplatesOpen(true)} className="mt-2 w-full">
+                Use a template
+              </Button>
             )}
           </motion.div>
         ) : (
-          <motion.div className="flex flex-col gap-3" {...listMotion}>
+          <motion.div className="flex flex-col gap-2.5" {...listMotion}>
             <AnimatePresence initial={false}>
               {groupedRendering(instances).map(group => {
-                if (group.kind === 'solo') {
-                  const inst = group.instance
-                  const ex = exerciseMap.get(inst.exerciseId)
-                  if (!ex) return null
-                  const idx = instances.findIndex(i => i.id === inst.id)
-                  const canLinkNext = idx >= 0 && idx < instances.length - 1
-                  return (
-                    <PlannedExerciseCard
-                      key={inst.id}
-                      exercise={ex}
-                      instanceId={inst.id}
-                      sets={setsByInstance.get(inst.id) ?? []}
-                      weightUnit={user.preferences.weightUnit}
-                      onSetCountChange={(c) => handleSetCountChange(inst.id, c)}
-                      onSetPatch={handleSetPatch}
-                      onRemove={() => handleRemoveExercise(inst.id)}
-                      onMoveUp={idx > 0 ? () => handleMove(inst.id, -1) : undefined}
-                      onMoveDown={canLinkNext ? () => handleMove(inst.id, 1) : undefined}
-                      onLinkNext={canLinkNext ? () => handleLinkNext(inst.id) : undefined}
-                    />
-                  )
-                }
-                // Superset group
+                if (group.kind === 'solo') return renderCard(group.instance, false)
                 return (
                   <motion.div
                     key={group.groupId}
-                    layout
+                    layout="position"
                     initial={{ opacity: 0, y: 8 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, scale: 0.97 }}
                     transition={{ duration: 0.22 }}
-                    className="relative rounded-2xl bg-foreground/[0.03] border border-foreground/15 p-2.5 flex flex-col gap-2"
+                    className="glass rounded-3xl overflow-hidden"
                   >
-                    <div className="flex items-center justify-between px-2 pt-1">
-                      <span className="text-[10px] font-semibold uppercase tracking-widest text-foreground/70">
-                        Superset · {group.members.length} exercises
-                      </span>
+                    <div className="flex items-center gap-2 pl-4 pr-2 pt-2.5">
+                      <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 text-foreground/60" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71" /><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71" /></svg>
+                      <span className="eyebrow flex-1">Superset</span>
                       <button
                         onClick={() => handleSaveGroupTemplate(group.members.map(m => m.id))}
-                        className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground hover:text-foreground transition-colors"
-                        title="Save this superset as a reusable template"
+                        className="h-7 px-2.5 rounded-full text-[11px] font-medium text-muted-foreground hover:text-foreground hover:bg-white/[0.07] transition-colors"
+                        aria-label="Save this superset as a template"
                       >
-                        <svg viewBox="0 0 24 24" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z" /></svg>
                         Save
                       </button>
                     </div>
-                    {group.members.map((inst) => {
-                      const ex = exerciseMap.get(inst.exerciseId)
-                      if (!ex) return null
-                      const idx = instances.findIndex(i => i.id === inst.id)
-                      const canLinkNext =
-                        idx >= 0 &&
-                        idx < instances.length - 1 &&
-                        group.members.length < SUPERSET_MAX_MEMBERS
-                      return (
-                        <PlannedExerciseCard
-                          key={inst.id}
-                          exercise={ex}
-                          instanceId={inst.id}
-                          sets={setsByInstance.get(inst.id) ?? []}
-                          weightUnit={user.preferences.weightUnit}
-                          onSetCountChange={(c) => handleSetCountChange(inst.id, c)}
-                          onSetPatch={handleSetPatch}
-                          onRemove={() => handleRemoveExercise(inst.id)}
-                          onMoveUp={idx > 0 ? () => handleMove(inst.id, -1) : undefined}
-                          onMoveDown={idx < instances.length - 1 ? () => handleMove(inst.id, 1) : undefined}
-                          onUnlink={() => handleUnlink(inst.id)}
-                          onLinkNext={canLinkNext ? () => handleLinkNext(inst.id) : undefined}
-                          inSuperset
-                        />
-                      )
-                    })}
+                    {/* Members hang off one rail, so the pairing reads at a glance. */}
+                    <div className="relative">
+                      <span className="absolute left-[18px] top-4 bottom-4 w-[2px] rounded-full bg-gradient-to-b from-white/35 via-white/15 to-white/35" aria-hidden />
+                      <div className="pl-3 divide-y divide-white/[0.06]">
+                        {group.members.map(inst => renderCard(inst, true, group.members.length))}
+                      </div>
+                    </div>
                   </motion.div>
                 )
               })}
             </AnimatePresence>
-
-            <button
-              onClick={() => setPickerOpen(true)}
-              className="h-12 flex items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-border/60 text-muted-foreground hover:text-foreground hover:border-primary/40 hover:bg-secondary/30 transition-colors active:scale-[0.985]"
-            >
-              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
-              Add another exercise
-            </button>
-
-            <div className="flex items-center justify-center gap-4 pt-1">
-              {templates && templates.length > 0 && (
-                <button
-                  onClick={() => setTemplatesOpen(true)}
-                  className="text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  Add from template
-                </button>
-              )}
-              <button
-                onClick={handleSaveTemplate}
-                className="text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
-              >
-                {templateFlash ? '✓ Saved as template' : 'Save as template'}
-              </button>
-            </div>
           </motion.div>
         )}
       </main>
 
-      {/* Bottom action bar — adapts to workout status */}
+      {/* Floating action bar: add, schedule, start — always in thumb reach. */}
       {!isEmpty && (
-        <div className="fixed bottom-0 inset-x-0 z-40 bg-background/85 backdrop-blur-xl border-t border-border/40 safe-area-bottom">
-          <div className="max-w-lg mx-auto px-4 py-3 flex gap-2">
+        <div className="fixed bottom-0 inset-x-0 z-40 px-3 pb-[max(env(safe-area-inset-bottom),0.75rem)]">
+          <div className="max-w-lg mx-auto glass-bar rounded-full p-1.5 flex items-center gap-1.5">
+            <button
+              onClick={() => setPickerOpen(true)}
+              className="h-12 pl-4 pr-5 flex items-center gap-2 rounded-full glass-soft text-sm font-semibold text-foreground active:scale-[0.97] transition-transform"
+            >
+              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
+              Add
+            </button>
             {workout.status === 'in_progress' ? (
-              <Button onClick={() => navigate(`/workout/${workout.id}`)} className="w-full">
+              <Button onClick={() => navigate(`/workout/${workout.id}`)} className="flex-1 h-12">
                 Back to workout
-                <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14M13 5l7 7-7 7" /></svg>
               </Button>
             ) : (
               <>
-                <Button
-                  variant="outline"
+                <button
                   onClick={() => setScheduleOpen(true)}
-                  className="flex-1"
+                  aria-label="Schedule for later"
+                  className="h-12 w-12 shrink-0 flex items-center justify-center rounded-full glass-soft text-foreground active:scale-[0.95] transition-transform"
                 >
-                  <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" /></svg>
-                  Save for later
-                </Button>
-                <Button onClick={handleStartNow} className="flex-1">
-                  Start now
-                  <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14M13 5l7 7-7 7" /></svg>
+                  <svg viewBox="0 0 24 24" className="h-[18px] w-[18px]" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="3" /><path d="M16 2v4M8 2v4M3 10h18" /></svg>
+                </button>
+                <Button onClick={handleStartNow} className="flex-1 h-12">
+                  Start
                 </Button>
               </>
             )}
@@ -561,15 +519,18 @@ export function Plan() {
       />
 
       {/* Template picker */}
-      <Sheet open={templatesOpen} onClose={() => setTemplatesOpen(false)} title="Start from a template">
+      <Sheet open={templatesOpen} onClose={() => setTemplatesOpen(false)} title="Templates">
+        {!isEmpty && (
+          <Button variant="secondary" onClick={handleSaveTemplate} className="w-full mb-3">
+            {templateFlash ? 'Saved' : 'Save this workout as a template'}
+          </Button>
+        )}
         {!templates || templates.length === 0 ? (
-          <p className="py-8 text-center text-sm text-muted-foreground">
-            No templates yet. Build a workout and tap "Save as template" to reuse it later.
-          </p>
+          <p className="py-6 text-center text-sm text-muted-foreground">No templates yet</p>
         ) : (
           <div className="space-y-2 pb-2">
             {templates.map((t: WorkoutTemplate) => (
-              <div key={t.id} className="flex items-center gap-2 rounded-2xl bg-card border border-border/50 p-3">
+              <div key={t.id} className="flex items-center gap-2 rounded-2xl glass-soft p-3">
                 <button
                   onClick={() => handleUseTemplate(t.id)}
                   className="flex-1 min-w-0 text-left"
@@ -597,26 +558,24 @@ export function Plan() {
         {discardConfirm && (
           <>
             <motion.div
-              className="fixed inset-0 z-[80] bg-black/60 backdrop-blur-sm"
+              className="fixed inset-0 z-[80] bg-black/50"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => setDiscardConfirm(false)}
             />
             <motion.div
-              className="fixed inset-x-4 top-1/2 -translate-y-1/2 z-[90] max-w-sm mx-auto rounded-2xl bg-card border border-border/60 p-5 shadow-card"
+              className="fixed inset-x-4 top-1/2 -translate-y-1/2 z-[90] max-w-sm mx-auto rounded-3xl glass-bar p-5"
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
               transition={{ duration: 0.18 }}
             >
               <h3 className="text-base font-semibold text-foreground">Discard this draft?</h3>
-              <p className="text-sm text-muted-foreground mt-1">
-                Your planned exercises will be deleted. This can't be undone.
-              </p>
+              <p className="text-sm text-muted-foreground mt-1">This can't be undone.</p>
               <div className="mt-4 flex gap-2 justify-end">
                 <Button variant="ghost" onClick={() => setDiscardConfirm(false)}>
-                  Keep editing
+                  Cancel
                 </Button>
                 <Button variant="destructive" onClick={handleDiscard}>
                   Discard
@@ -661,4 +620,26 @@ function groupedRendering(instances: ExerciseInstance[]): RenderItem[] {
     }
   }
   return out
+}
+
+function IconButton({ label, onClick, danger, children }: {
+  label: string
+  onClick: () => void
+  danger?: boolean
+  children: React.ReactNode
+}) {
+  return (
+    <button
+      onClick={onClick}
+      aria-label={label}
+      className={
+        'h-10 w-10 shrink-0 flex items-center justify-center rounded-full transition-colors ' +
+        (danger
+          ? 'text-muted-foreground hover:text-red-400 hover:bg-red-500/10'
+          : 'text-foreground/80 hover:text-foreground hover:bg-white/[0.08] active:bg-white/[0.12]')
+      }
+    >
+      <svg viewBox="0 0 24 24" className="h-[18px] w-[18px]" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">{children}</svg>
+    </button>
+  )
 }

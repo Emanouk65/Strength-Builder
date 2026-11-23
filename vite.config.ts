@@ -29,8 +29,8 @@ export default defineConfig({
         name: 'FORGE',
         short_name: 'FORGE',
         description: 'Forge your strongest self',
-        theme_color: '#18181b',
-        background_color: '#09090b',
+        theme_color: '#050507',
+        background_color: '#050507',
         display: 'standalone',
         orientation: 'portrait',
         icons: [

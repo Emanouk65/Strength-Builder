@@ -1,11 +1,10 @@
 import { useState, useMemo } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useNavigate } from 'react-router-dom'
-import { motion } from 'framer-motion'
-import { db, getCurrentUser, getNextProgramWorkout, getMissedProgramWorkouts, getActiveProgram, skipWorkout, getRecentReflections, getUserAchievements, getTodaysCheckIn, getRecentCheckIns, getDraftWorkout, getScheduledWorkouts } from '@/db'
-import { Button, Card, CardContent, CardHeader, CardTitle, Badge, Skeleton } from '@/components/ui'
-import { formatDate, formatDuration, cn, getShortDayName, getLocalDateString } from '@/lib/utils'
-import { ACHIEVEMENTS } from '@/lib/constants'
+import { AnimatePresence, motion } from 'framer-motion'
+import { db, resolveExercises, getCurrentUser, getNextProgramWorkout, getMissedProgramWorkouts, getActiveProgram, skipWorkout, getRecentReflections, getTodaysCheckIn, getRecentCheckIns, getDraftWorkout, getScheduledWorkouts } from '@/db'
+import { Button, Skeleton } from '@/components/ui'
+import { formatDate, cn, getShortDayName, getLocalDateString, getExerciseInputKind } from '@/lib/utils'
 import type { WorkoutReflection, Workout, DailyCheckIn } from '@/lib/types'
 
 export function Dashboard() {
@@ -41,14 +40,6 @@ export function Dashboard() {
     },
     [user]
   )
-  const achievements = useLiveQuery(
-    async () => {
-      if (!user) return []
-      return getUserAchievements(user.id)
-    },
-    [user]
-  )
-
   const recentWorkouts = useLiveQuery(
     async () => {
       if (!user) return []
@@ -104,7 +95,7 @@ export function Dashboard() {
   const todaysCheckIn = useLiveQuery(
     async () => {
       if (!user) return null
-      return getTodaysCheckIn(user.id)
+      return (await getTodaysCheckIn(user.id)) ?? null
     },
     [user]
   )
@@ -138,6 +129,43 @@ export function Dashboard() {
     [user]
   )
 
+  // Main lifts for the hero: the first few exercises outside the warm-up.
+  const heroLifts = useLiveQuery(
+    async () => {
+      if (!nextWorkout || nextWorkout.status === 'completed') return [] as { name: string; sets: number; prep: boolean }[]
+      const blocks = (await db.workoutBlocks.where('workoutId').equals(nextWorkout.id).toArray())
+        .filter(b => b.type !== 'warmup' && b.type !== 'cooldown')
+        .sort((x, y) => x.order - y.order)
+      if (blocks.length === 0) return []
+      const instances = await db.exerciseInstances.where('blockId').anyOf(blocks.map(b => b.id)).toArray()
+      const blockOrder = new Map(blocks.map(b => [b.id, b.order]))
+      instances.sort((x, y) => (blockOrder.get(x.blockId)! - blockOrder.get(y.blockId)!) || x.order - y.order)
+      const exercises = await resolveExercises(instances.map(i => i.exerciseId))
+      const counts = await Promise.all(instances.map(i =>
+        db.setInstances.where('exerciseInstanceId').equals(i.id).filter(s => s.setType !== 'warmup').count()))
+      // Lifting first; mobility and cardio prep fold into "+N more".
+      const prep = (id: string) => {
+        const ex = exercises.get(id)
+        return !ex || ex.category === 'mobility' || getExerciseInputKind(ex) === 'cardio'
+      }
+      return instances
+        .map((i, idx) => ({ name: exercises.get(i.exerciseId)?.name ?? 'Exercise', sets: counts[idx], prep: prep(i.exerciseId) }))
+        .sort((a, b) => Number(a.prep) - Number(b.prep))
+    },
+    [nextWorkout?.id, nextWorkout?.status]
+  )
+
+  const upcomingProgram = useLiveQuery(
+    async () => {
+      if (!user || !activeProgram) return [] as Workout[]
+      const start = new Date(); start.setHours(0, 0, 0, 0)
+      const end = new Date(start); end.setDate(end.getDate() + 7)
+      const list = await getScheduledWorkouts(user.id, start, end)
+      return list.filter(w => w.programId === activeProgram.id)
+    },
+    [user?.id, activeProgram?.id]
+  )
+
   const weeklyStats = useMemo(
     () => calculateWeeklyStats(thisWeekWorkouts || [], recentReflections || [], thisWeekSets),
     [thisWeekWorkouts, recentReflections, thisWeekSets]
@@ -152,11 +180,6 @@ export function Dashboard() {
     const isStreakActive = lastWorkoutDate === todayStr || lastWorkoutDate === yesterdayStr
     return isStreakActive ? (user.currentStreak ?? 0) : 0
   }, [user?.lastWorkoutDate, user?.currentStreak])
-
-  const insight = useMemo(
-    () => user ? getPersonalizedInsight({ ...user, currentStreak }, weeklyStats, recentReflections || []) : '',
-    [user, currentStreak, weeklyStats, recentReflections]
-  )
 
   // First paint: user query hasn't resolved yet — show a skeleton instead of
   // a blank flash. (null means no user at all; App routes that to onboarding.)
@@ -181,188 +204,78 @@ export function Dashboard() {
   }
   if (!user) return null
 
-  const greeting = getGreeting()
-  const firstName = user.name.split(' ')[0]
+  const today = new Date()
+  const dateLabel = today.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })
+  // Program sessions after the hero, plus anything the user scheduled themselves.
+  const upNext = [
+    ...(upcomingProgram ?? []).filter(w => w.id !== nextWorkout?.id),
+    ...(readyToGo ?? []),
+  ].sort((a, b) => new Date(a.scheduledDate).getTime() - new Date(b.scheduledDate).getTime())
 
   return (
     <div className="flex flex-col">
       {/* Header */}
-      <div className="px-4 pt-12 pb-6 relative overflow-hidden border-b border-border/30">
-        <p className="text-sm text-muted-foreground relative z-10">{greeting}</p>
-        <h1 className="text-3xl font-black text-foreground mt-0.5 relative z-10 tracking-tight">{firstName}</h1>
+      <header className="px-5 pt-14 pb-5 flex items-end justify-between">
+        <div>
+          <p className="eyebrow">{dateLabel}</p>
+          <h1 className="mt-1 text-[34px] font-bold leading-none tracking-tight text-foreground">Today</h1>
+        </div>
+        <div className="flex items-center gap-2">
+          {currentStreak > 0 && (
+            <span className="glass-soft rounded-full h-9 px-3 flex items-center gap-1.5 text-[13px] font-semibold tabular-nums">
+              <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 text-orange-400" fill="currentColor"><path d="M12 2c1 3.5 5 5.5 5 10a5 5 0 01-10 0c0-2 1-3.5 2-4.5 0 2 1 3 2 3 0-3-1-5.5 1-8.5z" /></svg>
+              {currentStreak}
+            </span>
+          )}
+          <button
+            onClick={() => navigate('/settings')}
+            aria-label="Settings"
+            className="glass-soft rounded-full h-9 w-9 flex items-center justify-center text-foreground/80 active:scale-95 transition-transform"
+          >
+            <GearIcon />
+          </button>
+        </div>
+      </header>
 
-        {/* Streak pill in header */}
-        {currentStreak > 0 && (
-          <div className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-secondary/60 border border-border/50 relative z-10">
-            {currentStreak >= 3 ? (
-              <span className="text-base animate-pulse">🔥</span>
-            ) : (
-              <span className="text-base">⚡</span>
-            )}
-            <span className="text-sm font-bold text-foreground">{currentStreak} day streak</span>
-          </div>
-        )}
-      </div>
-
-      <div className="flex flex-col gap-5 px-4 pb-8 -mt-1">
-        {/* Weekly Calendar */}
-        <WeeklyCalendar
-          workouts={recentWorkouts || []}
-          checkIns={recentCheckIns || []}
-          missedWorkouts={missedWorkouts || []}
-        />
-
-        {/* Resume Draft */}
-        {draftWorkout && (
-          <ResumeDraftCard
-            workout={draftWorkout}
-            onResume={() => navigate(`/plan/${draftWorkout.id}`)}
-          />
-        )}
-
-        {/* Ready to go (user-scheduled, upcoming) */}
-        {readyToGo && readyToGo.length > 0 && (
-          <ReadyToGoList
-            workouts={readyToGo}
-            onStart={(id) => navigate(`/workout/${id}`)}
-            onEdit={(id) => navigate(`/plan/${id}`)}
-          />
-        )}
-
-        {/* Next Workout Hero Card */}
+      <div className="flex flex-col gap-3 px-4 pb-8">
         <NextWorkoutCard
           nextWorkout={nextWorkout}
           programName={activeProgram?.name ?? null}
+          lifts={heroLifts ?? []}
           onStart={(id) => navigate(`/workout/${id}`)}
+          onEdit={(id) => navigate(`/plan/${id}`)}
           onStartFree={() => navigate('/plan')}
-          onOpenCoach={() => navigate('/coach')}
+          onOpenProgram={() => navigate('/coach')}
         />
 
-        {/* Weekly Stats Row */}
-        <WeeklyStatsRow stats={weeklyStats} insight={insight} />
+        <DailyCheckInCard checkIn={todaysCheckIn} onCheckIn={() => navigate('/check-in')} />
 
-        {/* AI Coach entry */}
-        <button
-          onClick={() => navigate('/coach')}
-          className="w-full text-left rounded-2xl p-4 border border-border/30 bg-card hover:border-primary/30 active:scale-[0.98] transition-all duration-200 flex items-center gap-4"
-        >
-          <div className="w-10 h-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
-            <span className="text-lg">✨</span>
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="font-semibold text-sm text-foreground">AI Coach</p>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              {activeProgram ? `On program: ${activeProgram.name}` : 'Generate a training program from your goals'}
-            </p>
-          </div>
-          <svg className="w-4 h-4 text-muted-foreground shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-          </svg>
-        </button>
+        {draftWorkout && (
+          <ResumeDraftCard workout={draftWorkout} onResume={() => navigate(`/plan/${draftWorkout.id}`)} />
+        )}
 
-        {/* Quick Actions */}
-        <div className="grid grid-cols-2 gap-3">
-          <QuickActionCard
-            icon={<BarbellIcon />}
-            title="Plan workout"
-            subtitle="Build & start"
-            accent="primary"
-            onClick={() => navigate('/plan')}
-          />
-          <QuickActionCard
-            icon={<ChartLineIcon />}
-            title="History"
-            subtitle="View progress"
-            accent="green"
-            onClick={() => navigate('/history')}
-          />
-        </div>
-
-        {/* Daily Check-In */}
-        <DailyCheckInCard
-          checkIn={todaysCheckIn}
-          onCheckIn={() => navigate('/check-in')}
-        />
-
-        {/* Missed Workouts Alert */}
         {missedWorkouts && missedWorkouts.length > 0 && (
           <MissedWorkoutsCard
             workouts={missedWorkouts}
-            onSkip={async (workoutId) => {
-              await skipWorkout(workoutId, 'Skipped from dashboard')
-            }}
+            onSkip={async (workoutId) => { await skipWorkout(workoutId, 'Skipped from dashboard') }}
             onCatchUp={(workoutId) => navigate(`/workout/${workoutId}`)}
           />
         )}
 
-        {/* Recent Trends */}
-        {recentReflections && recentReflections.length > 0 && (
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Performance Trends</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-3 gap-4 mb-5">
-                <StatBox label="Energy" value={calculateAverage(recentReflections, 'energy')} trend={getTrend(recentReflections, 'energy')} />
-                <StatBox label="Sleep" value={calculateAverage(recentReflections, 'sleepHours')} unit="h" trend={getTrend(recentReflections, 'sleepHours')} />
-                <StatBox label="Perf" value={calculateAverage(recentReflections, 'performance')} trend={getTrend(recentReflections, 'performance')} />
-              </div>
-              {/* Mini bar chart */}
-              <div className="flex items-end justify-between gap-1 h-10">
-                {recentReflections.slice(0, 7).reverse().map((r) => (
-                  <div
-                    key={r.id}
-                    className="flex-1 rounded-t-sm bg-primary/40 hover:bg-primary transition-colors"
-                    style={{ height: `${(r.performance / 10) * 100}%` }}
-                    title={`${formatDate(r.completedAt)}: ${r.performance}/10`}
-                  />
-                ))}
-              </div>
-              <p className="text-[10px] text-muted-foreground text-center mt-2">
-                Performance over last {recentReflections.length} sessions
-              </p>
-            </CardContent>
-          </Card>
-        )}
+        <WeeklyCalendar
+          workouts={recentWorkouts || []}
+          checkIns={recentCheckIns || []}
+          missedWorkouts={missedWorkouts || []}
+          stats={weeklyStats}
+        />
 
-        {/* Achievements */}
-        {achievements && achievements.length > 0 && (
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-base">Achievements</CardTitle>
-                <Badge variant="outline">{achievements.length} unlocked</Badge>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="flex flex-wrap gap-2">
-                {achievements
-                  .sort((a, b) => new Date(b.unlockedAt).getTime() - new Date(a.unlockedAt).getTime())
-                  .slice(0, 6)
-                  .map((ua) => {
-                    const achievement = ACHIEVEMENTS[ua.achievementId]
-                    if (!achievement) return null
-                    return (
-                      <div
-                        key={ua.id}
-                        className="flex items-center gap-2 px-3 py-2 rounded-xl bg-secondary border border-border/30"
-                        title={achievement.description}
-                      >
-                        <span className="text-lg">{achievement.icon}</span>
-                        <span className="text-xs font-medium">{achievement.name}</span>
-                      </div>
-                    )
-                  })}
-              </div>
-              {achievements.length > 6 && (
-                <p className="text-xs text-muted-foreground mt-3 text-center">
-                  +{achievements.length - 6} more achievements
-                </p>
-              )}
-            </CardContent>
-          </Card>
+        {upNext.length > 0 && (
+          <UpNextList
+            workouts={upNext}
+            onStart={(id) => navigate(`/workout/${id}`)}
+            onEdit={(id) => navigate(`/plan/${id}`)}
+          />
         )}
-
       </div>
     </div>
   )
@@ -370,262 +283,126 @@ export function Dashboard() {
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
+const ease = [0.32, 0.72, 0, 1] as const
+
+/** Program names often carry "· Wk N"; the card shows the week separately. */
+function cleanName(name: string): string {
+  return name.replace(/\s*[·•-]\s*W(?:ee)?k\s*\d+\s*$/i, '').trim()
+}
+
 function NextWorkoutCard({
   nextWorkout,
   programName,
+  lifts,
   onStart,
+  onEdit,
   onStartFree,
-  onOpenCoach,
+  onOpenProgram,
 }: {
   nextWorkout: Workout | null | undefined
   programName: string | null
+  lifts: { name: string; sets: number; prep: boolean }[]
   onStart: (id: string) => void
+  onEdit: (id: string) => void
   onStartFree: () => void
-  onOpenCoach: () => void
+  onOpenProgram: () => void
 }) {
-  if (nextWorkout?.status === 'completed') {
-    return (
-      <Card className="overflow-hidden">
-        <CardContent className="pt-6 pb-6 text-center">
-          <div className="w-14 h-14 rounded-full bg-success/15 flex items-center justify-center mx-auto mb-3">
-            <svg className="w-7 h-7 text-success" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-            </svg>
-          </div>
-          <p className="font-bold text-foreground">Workout Complete!</p>
-          <p className="text-sm text-muted-foreground mt-1 mb-4">Nice work today. Keep the momentum going.</p>
-          <Button variant="outline" onClick={onStartFree}>Plan Another</Button>
-        </CardContent>
-      </Card>
-    )
-  }
+  if (nextWorkout === undefined) return <Skeleton className="h-56 w-full rounded-4xl" />
 
-  if (nextWorkout) {
+  if (nextWorkout && nextWorkout.status !== 'completed') {
     const isToday = isWorkoutToday(nextWorkout.scheduledDate)
     const isInProgress = nextWorkout.status === 'in_progress'
+    const when = isInProgress ? 'In progress' : isToday ? 'Today' : formatDate(nextWorkout.scheduledDate, 'long')
+    const meta = [
+      programName && nextWorkout.programWeek != null ? `Week ${nextWorkout.programWeek}` : null,
+      programName,
+    ].filter(Boolean).join(' · ')
+    const shown = lifts.filter(l => !l.prep).slice(0, 4)
+    const more = lifts.length - shown.length
 
     return (
-      <div className="rounded-2xl overflow-hidden relative bg-card border border-border/50 shadow-card">
-        <div className="relative z-10 p-5">
-          <div className="flex items-start justify-between mb-4">
-            <div>
-              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">
-                {isInProgress ? 'In Progress' : isToday ? "Today's Workout" : formatDate(nextWorkout.scheduledDate, 'long')}
-              </p>
-              <h2 className="text-xl font-bold text-foreground mt-1 tracking-tight">{nextWorkout.name}</h2>
-              {programName && nextWorkout.programWeek != null && (
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  Week {nextWorkout.programWeek} · {programName}
-                </p>
-              )}
-            </div>
-            {nextWorkout.totalDuration ? (
-              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-secondary/60 border border-border/40">
-                <svg className="w-3 h-3 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                <span className="text-xs text-muted-foreground">{formatDuration(nextWorkout.totalDuration)}</span>
-              </div>
-            ) : null}
-          </div>
-
-          <Button
-            className="w-full"
-            size="lg"
-            onClick={() => onStart(nextWorkout.id)}
+      <motion.section
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4, ease }}
+        className="glass-hero rounded-4xl p-5 overflow-hidden isolate"
+      >
+        <div className="flex items-center justify-between">
+          <p className={cn('eyebrow', isInProgress && 'text-sky-300')}>{when}</p>
+          <button
+            onClick={() => onEdit(nextWorkout.id)}
+            className="text-[13px] font-medium text-foreground/70 hover:text-foreground -mr-1 px-1"
           >
-            {isInProgress ? 'Continue Workout' : 'Start Workout'}
-          </Button>
+            Edit
+          </button>
         </div>
-      </div>
+        <h2 className="mt-1.5 text-[28px] font-bold leading-tight tracking-tight text-foreground">
+          {cleanName(nextWorkout.name)}
+        </h2>
+        {meta && <p className="mt-0.5 text-[13px] text-muted-foreground">{meta}</p>}
+
+        {shown.length > 0 && (
+          <ul className="mt-4 divide-y divide-white/[0.06]">
+            {shown.map((l, i) => (
+              <li key={i} className="flex items-center justify-between py-2 text-[15px]">
+                <span className="truncate text-foreground/90">{l.name}</span>
+                <span className="ml-3 shrink-0 tabular-nums text-muted-foreground">{l.sets} {l.sets === 1 ? 'set' : 'sets'}</span>
+              </li>
+            ))}
+            {more > 0 && (
+              <li className="py-2 text-[13px] text-muted-foreground">+{more} more</li>
+            )}
+          </ul>
+        )}
+
+        <Button className="mt-4 w-full" size="lg" onClick={() => onStart(nextWorkout.id)}>
+          {isInProgress ? 'Continue' : 'Start'}
+        </Button>
+      </motion.section>
     )
   }
 
-  // No scheduled workout
+  // Nothing scheduled (or today's session is done).
+  const done = nextWorkout?.status === 'completed'
   return (
-    <div className="rounded-2xl overflow-hidden relative bg-card border border-border/50 shadow-card">
-      <div className="relative z-10 p-5">
-        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest mb-1">Free Day</p>
-        <h2 className="text-xl font-bold text-foreground mb-1 tracking-tight">No Scheduled Workout</h2>
-        <p className="text-sm text-muted-foreground mb-4">
-          {programName ? 'Nothing on the program today — plan something or recover.' : 'Plan a workout, or let the Coach build you a program.'}
-        </p>
-        <div className="flex gap-2">
-          <Button className="flex-1" onClick={onStartFree}>Plan Workout</Button>
-          {!programName && (
-            <Button variant="outline" className="flex-1" onClick={onOpenCoach}>✨ AI Coach</Button>
-          )}
-        </div>
+    <section className="glass-hero rounded-4xl p-5 overflow-hidden">
+      <p className="eyebrow">{done ? 'Done today' : 'Nothing scheduled'}</p>
+      <h2 className="mt-1.5 text-[28px] font-bold leading-tight tracking-tight text-foreground">
+        {done ? cleanName(nextWorkout!.name) : 'Open day'}
+      </h2>
+      <div className="mt-5 flex gap-2">
+        <Button className="flex-1" size="lg" onClick={onStartFree}>Build a workout</Button>
+        {!programName && !done && (
+          <Button variant="secondary" size="lg" className="flex-1" onClick={onOpenProgram}>Program</Button>
+        )}
       </div>
-    </div>
+    </section>
   )
 }
 
-function WeeklyCalendar({
-  workouts,
-  checkIns,
-  missedWorkouts,
-}: {
-  workouts: Workout[]
-  checkIns: DailyCheckIn[]
-  missedWorkouts: Workout[]
-}) {
-  const today = new Date()
-  const dayOfWeek = today.getDay()
-
-  const weekDates = Array.from({ length: 7 }, (_, i) => {
-    const date = new Date(today)
-    date.setDate(today.getDate() - dayOfWeek + i)
-    return date
-  })
-
-  const workoutDates = new Map<string, Workout[]>()
-  workouts.forEach(w => {
-    if (w.completedAt) {
-      const dateKey = new Date(w.completedAt).toDateString()
-      workoutDates.set(dateKey, [...(workoutDates.get(dateKey) || []), w])
-    }
-  })
-
-  const missedDates = new Set(missedWorkouts.map(w => new Date(w.scheduledDate).toDateString()))
-  const checkInDates = new Set(checkIns.map(c => new Date(c.date).toDateString()))
-
-  return (
-    <Card className="overflow-hidden">
-      <CardHeader className="pb-3">
-        <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-widest">This Week</CardTitle>
-      </CardHeader>
-      <CardContent className="pt-0">
-        <div className="grid grid-cols-7 gap-1">
-          {weekDates.map((date, i) => {
-            const dateKey = date.toDateString()
-            const hasWorkout = (workoutDates.get(dateKey) || []).length > 0
-            const hasCheckIn = checkInDates.has(dateKey)
-            const hasMissed = missedDates.has(dateKey)
-            const isToday = date.toDateString() === today.toDateString()
-            const isPast = date < today && !isToday
-
-            return (
-              <div
-                key={i}
-                className={cn(
-                  'flex flex-col items-center py-2.5 rounded-xl transition-all',
-                  isToday && 'bg-primary/15 ring-1 ring-primary/40',
-                  hasWorkout && !isToday && 'bg-success/8',
-                  hasMissed && !hasWorkout && !isToday && 'bg-warning/5',
-                  !hasWorkout && !hasCheckIn && !hasMissed && isPast && 'opacity-40'
-                )}
-              >
-                <span className={cn(
-                  'text-[10px] font-semibold uppercase tracking-wide',
-                  isToday ? 'text-primary' : 'text-muted-foreground'
-                )}>
-                  {getShortDayName(date.getDay())}
-                </span>
-                <span className={cn(
-                  'text-base font-bold mt-0.5 leading-none',
-                  isToday && 'text-primary',
-                  hasMissed && !hasWorkout && !isToday && 'text-warning',
-                  !isToday && !hasMissed && 'text-foreground'
-                )}>
-                  {date.getDate()}
-                </span>
-                <div className="h-3 mt-1 flex items-center gap-0.5">
-                  {hasWorkout && <div className="w-1.5 h-1.5 rounded-full bg-success" />}
-                  {hasMissed && !hasWorkout && <div className="w-1.5 h-1.5 rounded-full bg-warning" />}
-                  {hasCheckIn && <div className="w-1.5 h-1.5 rounded-full bg-primary" />}
-                  {!hasWorkout && !hasCheckIn && !hasMissed && (
-                    <div className={cn(
-                      'w-1.5 h-1.5 rounded-full',
-                      isToday ? 'border border-primary/50' : 'border border-muted-foreground/20'
-                    )} />
-                  )}
-                </div>
-              </div>
-            )
-          })}
-        </div>
-
-        {/* Legend */}
-        <div className="flex items-center gap-3 mt-3 text-[10px] text-muted-foreground">
-          <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-success inline-block" /> Done</span>
-          <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-warning inline-block" /> Missed</span>
-          <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-primary inline-block" /> Check-in</span>
-        </div>
-      </CardContent>
-    </Card>
-  )
-}
-
-function WeeklyStatsRow({
-  stats,
-  insight,
-}: {
-  stats: { workoutsCompleted: number; totalMinutes: number; totalSets: number; avgPerformance: number }
-  insight: string
-}) {
-  // Show — for empty values rather than a stray 0.
-  const dash = (n: number) => (n > 0 ? n : '—')
-  const statItems = [
-    { label: 'Workouts', value: dash(stats.workoutsCompleted), color: 'text-primary' },
-    { label: 'Minutes', value: dash(stats.totalMinutes), color: 'text-foreground' },
-    { label: 'Sets', value: dash(stats.totalSets), color: 'text-foreground' },
-    { label: 'Avg Perf', value: stats.avgPerformance > 0 ? stats.avgPerformance.toFixed(1) : '—', color: 'text-foreground' },
-  ]
-
-  return (
-    <Card>
-      <CardContent className="pt-4 pb-4">
-        <div className="grid grid-cols-4 gap-2 mb-4">
-          {statItems.map((item) => (
-            <div key={item.label} className="text-center">
-              <p className={cn('text-xl font-black font-mono', item.color)}>{item.value}</p>
-              <p className="text-[10px] text-muted-foreground mt-0.5">{item.label}</p>
-            </div>
-          ))}
-        </div>
-        <div className="flex items-start gap-2.5 pt-3 border-t border-border/30">
-          <span className="text-base shrink-0">💡</span>
-          <p className="text-xs text-muted-foreground leading-relaxed">{insight}</p>
-        </div>
-      </CardContent>
-    </Card>
-  )
-}
-
-function QuickActionCard({
-  icon,
-  title,
-  subtitle,
-  accent,
-  onClick,
-}: {
-  icon: React.ReactNode
-  title: string
-  subtitle: string
-  accent: 'primary' | 'green'
-  onClick: () => void
-}) {
-  const accentClasses = {
-    primary: 'bg-primary/10 text-primary',
-    green: 'bg-secondary/60 text-foreground',
-  }
-
+function RowButton({ onClick, children, className }: { onClick: () => void; children: React.ReactNode; className?: string }) {
   return (
     <button
       onClick={onClick}
       className={cn(
-        'w-full text-left rounded-2xl p-4 border border-border/30 bg-card',
-        'hover:border-primary/30 active:scale-[0.97]',
-        'transition-all duration-200 press-feedback'
+        'glass rounded-3xl w-full text-left px-4 py-3.5 flex items-center gap-3 active:scale-[0.99] transition-transform',
+        className
       )}
     >
-      <div className={cn('w-10 h-10 rounded-xl flex items-center justify-center mb-3', accentClasses[accent])}>
-        {icon}
-      </div>
-      <p className="font-semibold text-sm text-foreground">{title}</p>
-      <p className="text-xs text-muted-foreground mt-0.5">{subtitle}</p>
+      {children}
+      <svg viewBox="0 0 24 24" className="h-4 w-4 shrink-0 text-muted-foreground" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round"><path d="M9 18l6-6-6-6" /></svg>
     </button>
+  )
+}
+
+function RowIcon({ children, tone = 'default' }: { children: React.ReactNode; tone?: 'default' | 'warn' }) {
+  return (
+    <span className={cn(
+      'h-9 w-9 shrink-0 rounded-full flex items-center justify-center',
+      tone === 'warn' ? 'bg-amber-400/15 text-amber-300' : 'bg-white/[0.08] text-foreground/85'
+    )}>
+      <svg viewBox="0 0 24 24" className="h-[18px] w-[18px]" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">{children}</svg>
+    </span>
   )
 }
 
@@ -636,60 +413,45 @@ function DailyCheckInCard({
   checkIn: DailyCheckIn | null | undefined
   onCheckIn: () => void
 }) {
-  if (checkIn) {
-    const getMoodEmoji = (mood: number) => {
-      if (mood <= 2) return '😔'
-      if (mood <= 4) return '😕'
-      if (mood <= 6) return '😐'
-      if (mood <= 8) return '🙂'
-      return '😄'
-    }
+  if (checkIn === undefined) return null
+  return (
+    <RowButton onClick={onCheckIn}>
+      <RowIcon><path d="M22 12h-4l-3 9L9 3l-3 9H2" /></RowIcon>
+      <div className="min-w-0 flex-1">
+        <p className="text-[15px] font-semibold text-foreground">Check-in</p>
+        {checkIn ? (
+          <p className="text-[13px] tabular-nums text-muted-foreground">
+            Energy {checkIn.energy} · Sleep {checkIn.sleepHours}h · Mood {checkIn.mood}
+          </p>
+        ) : (
+          <p className="text-[13px] text-muted-foreground">Not logged</p>
+        )}
+      </div>
+    </RowButton>
+  )
+}
 
-    return (
-      <Card className="border-primary/20 bg-gradient-to-r from-primary/5 to-transparent">
-        <CardContent className="pt-4 pb-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <span className="text-3xl">{getMoodEmoji(checkIn.mood)}</span>
-              <div>
-                <p className="text-sm font-semibold">Today's Check-In</p>
-                <p className="text-xs text-muted-foreground">
-                  Energy {checkIn.energy}/10 · Sleep {checkIn.sleepHours}h · Mood {checkIn.mood}/10
-                </p>
-              </div>
-            </div>
-            <Button variant="ghost" size="sm" onClick={onCheckIn}>Update</Button>
-          </div>
-          {checkIn.highlight && (
-            <div className="mt-3 pt-3 border-t border-primary/10">
-              <p className="text-xs text-muted-foreground">
-                Highlight: <span className="text-foreground">{checkIn.highlight}</span>
-              </p>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-    )
-  }
+function ResumeDraftCard({ workout, onResume }: { workout: Workout; onResume: () => void }) {
+  const editedAgo = useMemo(() => {
+    if (!workout.lastEditedAt) return null
+    const diffMs = Date.now() - new Date(workout.lastEditedAt).getTime()
+    const mins = Math.floor(diffMs / 60_000)
+    if (mins < 1) return 'just now'
+    if (mins < 60) return `${mins}m ago`
+    const hours = Math.floor(mins / 60)
+    if (hours < 24) return `${hours}h ago`
+    const days = Math.floor(hours / 24)
+    return `${days}d ago`
+  }, [workout.lastEditedAt])
 
   return (
-    <button
-      onClick={onCheckIn}
-      className="w-full text-left rounded-2xl border-2 border-dashed border-primary/25 p-4 hover:border-primary/40 active:scale-[0.98] transition-all duration-200"
-    >
-      <div className="flex items-center gap-4">
-        <div className="w-11 h-11 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-          <span className="text-xl">✨</span>
-        </div>
-        <div className="flex-1">
-          <p className="font-semibold text-sm text-foreground">Daily Check-In</p>
-          <p className="text-xs text-muted-foreground mt-0.5">How are you feeling today?</p>
-        </div>
-        <svg className="w-4 h-4 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-        </svg>
+    <RowButton onClick={onResume}>
+      <RowIcon><path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4 12.5-12.5z" /></RowIcon>
+      <div className="min-w-0 flex-1">
+        <p className="text-[15px] font-semibold text-foreground truncate">{workout.name || 'Draft'}</p>
+        <p className="text-[13px] text-muted-foreground">Draft{editedAgo ? ` · ${editedAgo}` : ''}</p>
       </div>
-    </button>
+    </RowButton>
   )
 }
 
@@ -702,119 +464,161 @@ function MissedWorkoutsCard({
   onSkip: (workoutId: string) => void
   onCatchUp: (workoutId: string) => void
 }) {
-  const [expanded, setExpanded] = useState(false)
-  const displayWorkouts = expanded ? workouts : workouts.slice(0, 2)
-
+  const [open, setOpen] = useState(false)
   return (
-    <Card className="border-warning/30 bg-warning/5">
-      <CardHeader className="pb-2">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <span className="text-lg">⚠️</span>
-            <CardTitle className="text-sm text-warning">
-              {workouts.length} Missed Workout{workouts.length > 1 ? 's' : ''}
-            </CardTitle>
-          </div>
-          {workouts.length > 2 && (
-            <Button variant="ghost" size="sm" onClick={() => setExpanded(!expanded)} className="text-xs">
-              {expanded ? 'Less' : `All (${workouts.length})`}
-            </Button>
-          )}
+    <div className="glass rounded-3xl overflow-hidden">
+      <button onClick={() => setOpen(o => !o)} className="w-full text-left px-4 py-3.5 flex items-center gap-3">
+        <RowIcon tone="warn"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></RowIcon>
+        <div className="min-w-0 flex-1">
+          <p className="text-[15px] font-semibold text-foreground">{workouts.length} missed</p>
+          <p className="text-[13px] text-muted-foreground truncate">{workouts.map(w => cleanName(w.name)).join(', ')}</p>
         </div>
-      </CardHeader>
-      <CardContent>
-        <div className="space-y-2">
-          {displayWorkouts.map((workout) => (
-            <div
-              key={workout.id}
-              className="flex items-center justify-between p-3 rounded-xl bg-background border border-border/30"
-            >
-              <div>
-                <p className="font-medium text-sm">{workout.name}</p>
-                <p className="text-xs text-muted-foreground">{formatDate(workout.scheduledDate, 'short')}</p>
-              </div>
-              <div className="flex gap-2">
-                <Button size="sm" variant="outline" onClick={() => onSkip(workout.id)}>Skip</Button>
-                <Button size="sm" onClick={() => onCatchUp(workout.id)}>Catch Up</Button>
-              </div>
-            </div>
-          ))}
-        </div>
-        {workouts.length > 1 && (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="w-full mt-3 text-muted-foreground text-xs"
-            onClick={() => workouts.forEach(w => onSkip(w.id))}
+        <svg viewBox="0 0 24 24" className={cn('h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-300', open && 'rotate-180')} fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round"><path d="M6 9l6 6 6-6" /></svg>
+      </button>
+      <AnimatePresence initial={false}>
+        {open && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.28, ease }}
+            className="overflow-hidden"
           >
-            Skip All Missed Workouts
-          </Button>
+            <div className="px-3 pb-3 flex flex-col gap-1.5">
+              {workouts.map((w) => (
+                <div key={w.id} className="glass-soft rounded-2xl flex items-center gap-2 pl-3.5 pr-1.5 py-1.5">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium truncate">{cleanName(w.name)}</p>
+                    <p className="text-xs text-muted-foreground">{formatDate(w.scheduledDate, 'short')}</p>
+                  </div>
+                  <Button size="sm" variant="ghost" onClick={() => onSkip(w.id)}>Skip</Button>
+                  <Button size="sm" onClick={() => onCatchUp(w.id)}>Do it</Button>
+                </div>
+              ))}
+              {workouts.length > 1 && (
+                <button
+                  onClick={() => workouts.forEach(w => onSkip(w.id))}
+                  className="mt-1 h-9 text-[13px] font-medium text-muted-foreground hover:text-foreground"
+                >
+                  Skip all
+                </button>
+              )}
+            </div>
+          </motion.div>
         )}
-      </CardContent>
-    </Card>
-  )
-}
-
-function StatBox({
-  label,
-  value,
-  unit,
-  trend,
-}: {
-  label: string
-  value: number
-  unit?: string
-  trend?: 'up' | 'down' | 'stable'
-}) {
-  return (
-    <div className="text-center">
-      <div className="flex items-center justify-center gap-1">
-        <span className="text-xl font-black font-mono text-foreground">
-          {value.toFixed(1)}{unit && <span className="text-sm font-normal text-muted-foreground ml-0.5">{unit}</span>}
-        </span>
-        {trend && (
-          <span className={cn(
-            'text-xs font-bold',
-            trend === 'up' && 'text-success',
-            trend === 'down' && 'text-destructive',
-            trend === 'stable' && 'text-muted-foreground'
-          )}>
-            {trend === 'up' ? '↑' : trend === 'down' ? '↓' : '→'}
-          </span>
-        )}
-      </div>
-      <p className="text-[10px] text-muted-foreground mt-0.5">{label}</p>
+      </AnimatePresence>
     </div>
   )
 }
 
-// ─── Icon components ──────────────────────────────────────────────────────────
+function WeeklyCalendar({
+  workouts,
+  checkIns,
+  missedWorkouts,
+  stats,
+}: {
+  workouts: Workout[]
+  checkIns: DailyCheckIn[]
+  missedWorkouts: Workout[]
+  stats: { workoutsCompleted: number; totalMinutes: number; totalSets: number }
+}) {
+  const today = new Date()
+  const weekDates = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(today)
+    d.setDate(today.getDate() - today.getDay() + i)
+    return d
+  })
+  const done = new Set(workouts.filter(w => w.completedAt).map(w => new Date(w.completedAt!).toDateString()))
+  const missed = new Set(missedWorkouts.map(w => new Date(w.scheduledDate).toDateString()))
+  const checked = new Set(checkIns.map(c => new Date(c.date).toDateString()))
 
-function BarbellIcon() {
   return (
-    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M6.5 6.5h11M6.5 17.5h11M4 9v6M8 7v10M16 7v10M20 9v6" />
+    <section className="glass rounded-3xl px-3 pt-3 pb-2.5">
+      <div className="grid grid-cols-7">
+        {weekDates.map((date, i) => {
+          const key = date.toDateString()
+          const isToday = key === today.toDateString()
+          const hasWorkout = done.has(key)
+          return (
+            <div key={i} className="flex flex-col items-center gap-1.5">
+              <span className="text-[11px] font-medium text-muted-foreground">{getShortDayName(date.getDay()).slice(0, 1)}</span>
+              <span className={cn(
+                'h-9 w-9 rounded-full flex items-center justify-center text-[15px] font-semibold tabular-nums',
+                isToday ? 'bg-white text-black' : hasWorkout ? 'bg-white/[0.12] text-foreground' : 'text-foreground/70'
+              )}>
+                {date.getDate()}
+              </span>
+              <span className="h-1.5 flex items-center gap-0.5" aria-hidden>
+                {hasWorkout && <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />}
+                {!hasWorkout && missed.has(key) && <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />}
+                {checked.has(key) && <span className="h-1.5 w-1.5 rounded-full bg-sky-400" />}
+              </span>
+            </div>
+          )
+        })}
+      </div>
+      {stats.workoutsCompleted > 0 && (
+        <div className="mt-3 pt-3 border-t border-white/[0.06] grid grid-cols-3 text-center">
+          <Stat value={stats.workoutsCompleted} label={stats.workoutsCompleted === 1 ? 'workout' : 'workouts'} />
+          <Stat value={stats.totalSets} label="sets" />
+          <Stat value={stats.totalMinutes} label="min" />
+        </div>
+      )}
+    </section>
+  )
+}
+
+function Stat({ value, label }: { value: number; label: string }) {
+  return (
+    <div>
+      <span className="text-[17px] font-semibold tabular-nums text-foreground">{value}</span>
+      <span className="ml-1 text-[13px] text-muted-foreground">{label}</span>
+    </div>
+  )
+}
+
+function UpNextList({ workouts, onStart, onEdit }: {
+  workouts: Workout[]
+  onStart: (id: string) => void
+  onEdit: (id: string) => void
+}) {
+  return (
+    <section className="mt-2">
+      <p className="eyebrow px-2 mb-2">This week</p>
+      <div className="glass rounded-3xl divide-y divide-white/[0.06] overflow-hidden">
+        {workouts.map(w => {
+          const sched = new Date(w.scheduledDate)
+          const isToday = sched.toDateString() === new Date().toDateString()
+          const isTomorrow = sched.toDateString() === new Date(Date.now() + 86400000).toDateString()
+          const label = isToday ? 'Today' : isTomorrow ? 'Tomorrow' : sched.toLocaleDateString(undefined, { weekday: 'long' })
+          return (
+            <div key={w.id} className="flex items-center gap-3 pl-4 pr-2 py-2.5">
+              <button onClick={() => onEdit(w.id)} className="min-w-0 flex-1 text-left">
+                <p className="text-[15px] font-medium text-foreground truncate">{cleanName(w.name || 'Workout')}</p>
+                <p className="text-[13px] text-muted-foreground">{label}</p>
+              </button>
+              {isToday && <Button size="sm" onClick={() => onStart(w.id)}>Start</Button>}
+              {!isToday && (
+                <svg viewBox="0 0 24 24" className="h-4 w-4 mr-2 shrink-0 text-muted-foreground" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round"><path d="M9 18l6-6-6-6" /></svg>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </section>
+  )
+}
+
+function GearIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-[18px] w-[18px]" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z" />
     </svg>
   )
 }
 
-function ChartLineIcon() {
-  return (
-    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M3 17l4-8 4 4 4-6 4 5" />
-      <path strokeLinecap="round" strokeLinejoin="round" d="M3 21h18" />
-    </svg>
-  )
-}
-
-// ─── Helper functions ─────────────────────────────────────────────────────────
-
-function getGreeting(): string {
-  const hour = new Date().getHours()
-  if (hour < 12) return 'Good morning,'
-  if (hour < 17) return 'Good afternoon,'
-  return 'Good evening,'
-}
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function isWorkoutToday(scheduledDate: Date): boolean {
   const today = new Date()
@@ -824,25 +628,6 @@ function isWorkoutToday(scheduledDate: Date): boolean {
     today.getMonth() === scheduled.getMonth() &&
     today.getFullYear() === scheduled.getFullYear()
   )
-}
-
-function calculateAverage(reflections: WorkoutReflection[], key: keyof WorkoutReflection): number {
-  if (reflections.length === 0) return 0
-  const sum = reflections.reduce((acc, r) => {
-    const value = r[key]
-    return acc + (typeof value === 'number' ? value : 0)
-  }, 0)
-  return sum / reflections.length
-}
-
-function getTrend(reflections: WorkoutReflection[], key: keyof WorkoutReflection): 'up' | 'down' | 'stable' {
-  if (reflections.length < 2) return 'stable'
-  const midpoint = Math.floor(reflections.length / 2)
-  const recentAvg = calculateAverage(reflections.slice(0, midpoint), key)
-  const olderAvg = calculateAverage(reflections.slice(midpoint), key)
-  const diff = recentAvg - olderAvg
-  if (Math.abs(diff) < 0.5) return 'stable'
-  return diff > 0 ? 'up' : 'down'
 }
 
 function calculateWeeklyStats(
@@ -871,137 +656,3 @@ function calculateWeeklyStats(
   }
 }
 
-function getPersonalizedInsight(
-  user: { currentStreak: number; totalWorkoutsCompleted: number; name: string },
-  weeklyStats: { workoutsCompleted: number; avgPerformance: number },
-  reflections: WorkoutReflection[]
-): string {
-  const insights: string[] = []
-
-  if (user.currentStreak === 0) {
-    insights.push("Start your streak today! Every journey begins with a single workout.")
-  } else if (user.currentStreak >= 7) {
-    insights.push(`${user.currentStreak} days strong. You're building unstoppable momentum.`)
-  } else if (user.currentStreak >= 3) {
-    insights.push(`${user.currentStreak} day streak! You're building a powerful habit.`)
-  }
-
-  if (weeklyStats.workoutsCompleted === 0) {
-    insights.push("New week, new opportunity. Let's make it count!")
-  } else if (weeklyStats.workoutsCompleted >= 4) {
-    insights.push("Crushing it this week! Your consistency is paying off.")
-  } else if (weeklyStats.workoutsCompleted >= 2) {
-    insights.push("Good momentum this week. Keep pushing forward!")
-  }
-
-  if (reflections.length > 0) {
-    const avgSleep = calculateAverage(reflections, 'sleepHours')
-    const avgEnergy = calculateAverage(reflections, 'energy')
-    const recentPerf = reflections[0]?.performance || 0
-
-    if (avgSleep < 6.5) {
-      insights.push("Sleep has been low. Prioritizing rest can boost your gains significantly.")
-    } else if (avgEnergy < 5) {
-      insights.push("Energy is running low. Consider a lighter session or focus on recovery.")
-    } else if (recentPerf >= 8) {
-      insights.push("You're performing at a high level. Keep riding this wave.")
-    }
-  }
-
-  if (user.totalWorkoutsCompleted === 0) {
-    insights.push("Your first workout awaits! Let's build something great together.")
-  } else if (user.totalWorkoutsCompleted % 10 === 0 && user.totalWorkoutsCompleted > 0) {
-    insights.push(`${user.totalWorkoutsCompleted} workouts completed. That's real dedication.`)
-  }
-
-  if (insights.length === 0) return "Stay consistent, trust the process, and the results will follow."
-  return insights[Math.floor(Math.random() * insights.length)]
-}
-
-// ─── Draft & Scheduled Cards ─────────────────────────────────────────────────
-
-function ResumeDraftCard({ workout, onResume }: { workout: Workout; onResume: () => void }) {
-  const editedAgo = useMemo(() => {
-    if (!workout.lastEditedAt) return null
-    const diffMs = Date.now() - new Date(workout.lastEditedAt).getTime()
-    const mins = Math.floor(diffMs / 60_000)
-    if (mins < 1) return 'just now'
-    if (mins < 60) return `${mins}m ago`
-    const hours = Math.floor(mins / 60)
-    if (hours < 24) return `${hours}h ago`
-    const days = Math.floor(hours / 24)
-    return `${days}d ago`
-  }, [workout.lastEditedAt])
-
-  return (
-    <motion.button
-      layout
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.25 }}
-      onClick={onResume}
-      className="w-full text-left rounded-2xl overflow-hidden relative bg-card border border-primary/30 active:scale-[0.99] transition-transform"
-    >
-      <div className="absolute inset-0 bg-gradient-to-br from-primary/10 via-transparent to-transparent pointer-events-none" />
-      <div className="relative z-10 p-4 flex items-center gap-3">
-        <div className="h-10 w-10 rounded-xl bg-primary/15 flex items-center justify-center shrink-0">
-          <svg viewBox="0 0 24 24" className="h-5 w-5 text-primary" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" /></svg>
-        </div>
-        <div className="min-w-0 flex-1">
-          <p className="text-[10px] uppercase tracking-widest text-primary font-semibold">Resume planning</p>
-          <p className="text-sm font-semibold text-foreground truncate">
-            {workout.name || 'Untitled draft'}
-          </p>
-          {editedAgo && <p className="text-xs text-muted-foreground">Edited {editedAgo}</p>}
-        </div>
-        <svg viewBox="0 0 24 24" className="h-4 w-4 text-muted-foreground shrink-0" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M9 18l6-6-6-6" /></svg>
-      </div>
-    </motion.button>
-  )
-}
-
-function ReadyToGoList({ workouts, onStart, onEdit }: {
-  workouts: Workout[]
-  onStart: (id: string) => void
-  onEdit: (id: string) => void
-}) {
-  return (
-    <Card>
-      <CardHeader className="pb-2">
-        <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-widest">Ready to go</CardTitle>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-2">
-        {workouts.map(w => {
-          const sched = new Date(w.scheduledDate)
-          const today = new Date(); today.setHours(0, 0, 0, 0)
-          const isToday = sched.toDateString() === new Date().toDateString()
-          const isTomorrow = sched.toDateString() === new Date(Date.now() + 86400000).toDateString()
-          const label = isToday ? 'Today' : isTomorrow ? 'Tomorrow' : formatDate(sched, 'short')
-          return (
-            <motion.div
-              key={w.id}
-              layout
-              initial={{ opacity: 0, y: 6 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="flex items-center gap-3 rounded-xl bg-secondary/50 border border-border/30 p-3"
-            >
-              <div className="min-w-0 flex-1">
-                <p className="text-[10px] uppercase tracking-widest text-muted-foreground">{label}</p>
-                <p className="text-sm font-semibold text-foreground truncate">{w.name || 'Workout'}</p>
-              </div>
-              <button
-                onClick={() => onEdit(w.id)}
-                className="h-9 px-3 rounded-lg text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
-              >
-                Edit
-              </button>
-              <Button size="sm" onClick={() => onStart(w.id)}>
-                {isToday ? 'Start' : 'View'}
-              </Button>
-            </motion.div>
-          )
-        })}
-      </CardContent>
-    </Card>
-  )
-}
